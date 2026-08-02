@@ -1,0 +1,3 @@
+# Ready when the app answers HTTP (docker-proxy accepts TCP long before
+# the python app is serving, so a plain connect check lies).
+http 18080 /

@@ -1,0 +1,2 @@
+# Ready when smbd accepts connections on 445.
+tcp 10445

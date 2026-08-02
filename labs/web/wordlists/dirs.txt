@@ -1,0 +1,21 @@
+# Wordlist for testing dir-busting modules against the web lab.
+# Real hits: admin api backup docs forbidden login protected secret uploads
+# Depth-2 hits (recursion): admin/panel backup/db
+# Decoys (must 404): config home index phpmyadmin test wp-admin
+admin
+api
+backup
+config
+db
+docs
+forbidden
+home
+index
+login
+panel
+phpmyadmin
+protected
+secret
+test
+uploads
+wp-admin
