@@ -441,18 +441,74 @@ class TestAdEnumLab(unittest.TestCase):
             self.assertIn("KERBEROASTABLE", out)
             self.assertIn("Domain Admins: Administrator", out)
             self.assertIn("policy:", out)
-            # collation: users + kerberoastable in loot, cred stored
+            # machine accounts must not appear in the user list
             users = console.store.loot("ad-users")
             self.assertEqual(len(users), 1)
             self.assertIn("analyst", users[0]["content"])
+            for line in users[0]["content"].splitlines():
+                self.assertFalse(line.rstrip("\t").endswith("$"),
+                                 f"machine account leaked into users: {line}")
+            # kerberoastable loot records the SPN itself
             roast = console.store.loot("kerberoastable")
             self.assertEqual(len(roast), 1)
             self.assertIn("backup_svc", roast[0]["content"])
+            self.assertIn("HTTP/web.forge.local", roast[0]["content"])
             creds = console.store.creds()
             self.assertEqual(len(creds), 1)
             self.assertEqual(creds[0]["service"], "ldap")
         finally:
             console.store.close()
+
+    def _run_enum(self, *commands):
+        """Run ad_enum through a throwaway console; return (output, creds)."""
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_bad_credentials_clean_error(self):
+        out, creds = self._run_enum(
+            "use auxiliary/enum/ad_enum",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD wrong-password",
+            "run",
+        )
+        self.assertIn("bind", out.lower())
+        self.assertIn("failed", out.lower())
+        self.assertEqual(creds, [])
+
+    def test_anonymous_bind_graceful(self):
+        # Samba AD allows the bind but restricts searches — either way the
+        # module must complete cleanly and say what happened
+        out, _ = self._run_enum(
+            "use auxiliary/enum/ad_enum",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "run",
+        )
+        self.assertIn("anonymous", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_unreachable_dc_clean_error(self):
+        out, _ = self._run_enum(
+            "use auxiliary/enum/ad_enum",
+            "set RHOSTS 127.0.0.2",  # nothing listens on 389 there
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "run",
+        )
+        self.assertIn("failed", out.lower())
+        self.assertNotIn("Traceback", out)
 
 
 if __name__ == "__main__":
