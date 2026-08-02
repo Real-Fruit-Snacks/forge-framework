@@ -1,0 +1,63 @@
+# A small Active Directory domain: one Samba DC (same image as the 'ad'
+# lab) plus a Windows 11 member that auto-joins FORGE.LOCAL during setup.
+#
+# The member talks to the DC over the private 'domain' network (the DC is
+# pinned to 10.10.10.10 and is the member's DNS server, so Kerberos and
+# SRV lookups resolve). impacket work happens against the DC's 1:1
+# loopback bindings below — do NOT run this and the 'ad' lab at the same
+# time, they claim the same ports.
+networks:
+  domain:
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
+
+services:
+  dc:
+    build: ../ad
+    # CAP_SYS_ADMIN: samba provision + NT ACLs (see labs/ad/compose.yml).
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      domain:
+        ipv4_address: 10.10.10.10
+    ports:
+      - "127.0.0.1:389:389"
+      - "127.0.0.1:88:88"
+      - "127.0.0.1:88:88/udp"   # Kerberos is UDP-first
+      - "127.0.0.1:445:445"
+
+  member:
+    image: dockurr/windows
+    environment:
+      VERSION: "11"
+      USERNAME: "labadmin"
+      PASSWORD: "Labpass2024!"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "32G"
+    devices:
+      - /dev/kvm
+    cap_add:
+      - NET_ADMIN
+    # Guest DNS -> the DC. QEMU user-mode networking forwards the guest's
+    # lookups to the container resolver, which we point at the DC.
+    dns:
+      - 10.10.10.10
+    networks:
+      - domain
+    depends_on:
+      - dc
+    ports:
+      - "127.0.0.1:3445:445"    # member SMB (impacket targets)
+      - "127.0.0.1:33389:3389"  # RDP
+      - "127.0.0.1:8008:8006"   # noVNC web viewer (watch the install)
+    volumes:
+      - member-data:/storage
+      # dockur/windows runs C:\OEM\install.bat during the final setup
+      # phase — ours joins FORGE.LOCAL (see oem/join.ps1).
+      - ./oem:/oem
+    stop_grace_period: 2m
+
+volumes:
+  member-data:

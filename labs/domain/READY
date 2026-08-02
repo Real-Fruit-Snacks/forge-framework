@@ -1,0 +1,6 @@
+# Readiness tracks the DC only: it provisions FORGE.LOCAL fresh each
+# boot (~60s). The Windows member keeps installing in the background
+# (~20 min first boot) — watch it via noVNC on 127.0.0.1:8008, and check
+# member SMB (3445) before pointing impacket at it.
+timeout 300
+tcp 389

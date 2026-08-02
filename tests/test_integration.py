@@ -585,5 +585,109 @@ class TestRoastLab(unittest.TestCase):
         self.assertEqual(hashes, [])
 
 
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestDomainDcLab(unittest.TestCase):
+    """domain lab, DC half only: proves the composed topology (build from
+    ../ad, fixed-IP network, 1:1 AD bindings) without paying the member's
+    ~20 min Windows install — that's TestDomainFullLab's job."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        # start ONLY the dc service (member excluded on purpose)
+        cls.manager._compose_run("domain", "up", "-d", "--build", "dc")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("domain")
+            raise RuntimeError("domain DC did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_dc_collates_domain(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/ad_enum",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            self.assertIn("backup_svc", buf.getvalue())
+            self.assertEqual(len(console.store.loot("ad-users")), 1)
+        finally:
+            console.store.close()
+
+    def test_dc_pinned_on_domain_network(self):
+        import json
+
+        proc = subprocess.run(
+            ["docker", "inspect", "forge-lab-domain-dc-1", "--format",
+             "{{json .NetworkSettings.Networks}}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        nets = json.loads(proc.stdout)
+        domain_net = [n for name, n in nets.items() if "domain" in name]
+        self.assertTrue(domain_net, f"no domain network in {list(nets)}")
+        self.assertEqual(domain_net[0]["IPAddress"], "10.10.10.10")
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestDomainFullLab(unittest.TestCase):
+    """Full domain: DC + Windows 11 member (first boot installs Windows,
+    ~20 min; READY returns after the DC, so poll member SMB ourselves)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")  # READY waits on the DC (300s cap)
+        deadline = time.time() + 2400
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=3445, timeout=5).close()
+                break
+            except Exception:
+                time.sleep(10)
+        else:
+            cls.manager.down("domain")
+            raise RuntimeError("domain member SMB not up within 2400s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_member_smb_login(self):
+        from impacket.smbconnection import SMBConnection
+
+        conn = SMBConnection(HOST, HOST, sess_port=3445, timeout=15)
+        try:
+            conn.login("labadmin", "Labpass2024!")
+        finally:
+            conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()

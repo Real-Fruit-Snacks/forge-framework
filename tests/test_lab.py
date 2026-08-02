@@ -20,8 +20,10 @@ class TestDiscovery(unittest.TestCase):
         self.mgr = LabManager(ROOT / "labs")
 
     def test_discovers_shipped_labs(self):
-        self.assertEqual({"web", "ssh", "smb", "ad", "windows"},
-                         set(self.mgr.labs()))
+        self.assertEqual(
+            {"web", "ssh", "smb", "ad", "windows", "workstation", "domain"},
+            set(self.mgr.labs()),
+        )
 
     def test_parses_targets(self):
         labs = self.mgr.labs()
@@ -32,6 +34,16 @@ class TestDiscovery(unittest.TestCase):
         self.assertEqual(
             labs["windows"].targets,
             [(1445, 445), (13389, 3389), (8006, 8006)],
+        )
+        self.assertEqual(
+            labs["workstation"].targets,
+            [(2445, 445), (23389, 3389), (8007, 8006)],
+        )
+        # domain: the DC's 1:1 AD bindings, then the member's
+        self.assertEqual(
+            labs["domain"].targets,
+            [(389, 389), (88, 88), (88, 88), (445, 445),
+             (3445, 445), (33389, 3389), (8008, 8006)],
         )
 
     def test_unknown_lab_raises(self):
@@ -85,6 +97,11 @@ class TestComposeInvocation(unittest.TestCase):
         self.assertEqual(self.mgr._ready_checks(labs["smb"]),
                          ([("tcp", 10445, "")], None))
         self.assertEqual(self.mgr._ready_checks(labs["windows"])[1], 2400)
+        self.assertEqual(self.mgr._ready_checks(labs["workstation"])[1], 2400)
+        # domain: readiness tracks the DC only — the Windows member keeps
+        # installing in the background
+        self.assertEqual(self.mgr._ready_checks(labs["domain"]),
+                         ([("tcp", 389, "")], 300))
 
     def test_ready_fallback_to_tcp(self):
         lab = Lab("t", Path("/nonexistent-lab-dir"), Path("/x/compose.yml"),

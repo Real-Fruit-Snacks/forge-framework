@@ -98,6 +98,8 @@ forge (payloads/bash_reverse_tcp) > generate
 | `smb` | `127.0.0.1:10139/10445` | SMB shares, signing-policy checks |
 | `ad` | `127.0.0.1:389/88/445` | Samba AD DC (FORGE.LOCAL) with roastable fixtures |
 | `windows` | `127.0.0.1:1445/13389` | Windows Server 2022 VM for psexec/wmiexec-class work |
+| `workstation` | `127.0.0.1:2445/23389` | Windows 11 client VM |
+| `domain` | DC `389/88/445`, member `3445/33389` | small AD domain: Samba DC + auto-joining Win11 member |
 
 `lab up <name>` builds and starts a target; labs are torn down on exit and
 can be fully reclaimed with `lab purge <name>`. Each lab has a build README

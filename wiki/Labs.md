@@ -32,6 +32,8 @@ rebuilds occasionally with `docker image prune`.
 | `smb` | `127.0.0.1:10139` + `10445` | SMB/impacket modules | guest share `public`; `labuser:labpass` |
 | `ad` | `127.0.0.1:389` + `88` + `445` | AD enumeration (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` |
 | `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
+| `workstation` | `127.0.0.1:2445` (SMB), `23389` (RDP) | Windows 11 client — the foothold box | `labadmin:Labpass2024!`; first boot installs (~20 min) |
+| `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL | DC creds as `ad`; member `labadmin:Labpass2024!` |
 
 Each lab has its own **build README** in its directory (`labs/<name>/README.md`)
 — what it's for, exactly how it's built, fixtures, and the gotchas it
@@ -72,6 +74,14 @@ covers domain-level LDAP/Kerberos. Use the windows lab when you need
 service control or a genuine Windows auth stack; a local eval VM
 (`virt-install`) or a cloud trial remain the answer for heavier,
 GUI-driven work.
+
+**Domain topologies**: the `domain` lab composes the `ad` lab's DC with a
+Windows 11 member on a private network and joins it automatically during
+setup (`labs/domain/oem/`). That's the "spin up a small domain" answer —
+one `lab up domain`. The `workstation` lab is the same dockur/windows
+recipe as a standalone Win11 client, for when you don't need a DC.
+Note the DC in `domain` claims the same loopback ports as the `ad` lab —
+never run both.
 
 ## Gotcha collection (learned the hard way)
 

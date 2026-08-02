@@ -1,0 +1,28 @@
+services:
+  workstation:
+    # Windows 11 eval in a KVM VM inside docker (dockur/windows) — the
+    # domain-joinable client / foothold box. First boot downloads the ISO
+    # and installs unattended (~20 min); the disk persists in the
+    # workstation-data volume, so later boots are fast.
+    image: dockurr/windows
+    environment:
+      VERSION: "11"
+      USERNAME: "labadmin"
+      PASSWORD: "Labpass2024!"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "32G"
+    devices:
+      - /dev/kvm
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "127.0.0.1:2445:445"    # impacket / SMB targets
+      - "127.0.0.1:23389:3389"  # RDP
+      - "127.0.0.1:8007:8006"   # noVNC web viewer (watch the install)
+    volumes:
+      - workstation-data:/storage
+    stop_grace_period: 2m
+
+volumes:
+  workstation-data:
