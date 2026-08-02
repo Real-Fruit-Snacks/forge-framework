@@ -20,13 +20,19 @@ class TestDiscovery(unittest.TestCase):
         self.mgr = LabManager(ROOT / "labs")
 
     def test_discovers_shipped_labs(self):
-        self.assertEqual({"web", "ssh", "smb"}, set(self.mgr.labs()))
+        self.assertEqual({"web", "ssh", "smb", "ad", "windows"},
+                         set(self.mgr.labs()))
 
     def test_parses_targets(self):
         labs = self.mgr.labs()
         self.assertEqual(labs["web"].targets, [(18080, 8080)])
         self.assertEqual(labs["ssh"].targets, [(12222, 22)])
         self.assertEqual(labs["smb"].targets, [(10139, 139), (10445, 445)])
+        # windows: trailing comments on port lines are tolerated
+        self.assertEqual(
+            labs["windows"].targets,
+            [(1445, 445), (13389, 3389), (8006, 8006)],
+        )
 
     def test_unknown_lab_raises(self):
         with self.assertRaises(LabError) as ctx:
@@ -59,27 +65,33 @@ class TestComposeInvocation(unittest.TestCase):
         try:
             lab = Lab("t", Path("t"), Path("t/compose.yml"),
                       [(live_port, 80)])
-            self.mgr._wait_ready(lab, timeout=5)  # returns, no raise
+            checks, _ = self.mgr._ready_checks(lab)
+            self.mgr._wait_ready(lab, 5, checks)  # returns, no raise
 
             dead = Lab("t", Path("t"), Path("t/compose.yml"), [(1, 80)])
+            checks, _ = self.mgr._ready_checks(dead)
             with self.assertRaises(LabError) as ctx:
-                self.mgr._wait_ready(dead, timeout=1)
+                self.mgr._wait_ready(dead, 1, checks)
             self.assertIn("readiness check", str(ctx.exception))
         finally:
             listener.close()
 
     def test_ready_file_parsing(self):
         labs = self.mgr.labs()
-        self.assertEqual(self.mgr._ready_checks(labs["web"]), [("http", 18080, "/")])
-        self.assertEqual(self.mgr._ready_checks(labs["ssh"]), [("banner", 12222, "")])
-        self.assertEqual(self.mgr._ready_checks(labs["smb"]), [("tcp", 10445, "")])
+        self.assertEqual(self.mgr._ready_checks(labs["web"]),
+                         ([("http", 18080, "/")], None))
+        self.assertEqual(self.mgr._ready_checks(labs["ssh"]),
+                         ([("banner", 12222, "")], None))
+        self.assertEqual(self.mgr._ready_checks(labs["smb"]),
+                         ([("tcp", 10445, "")], None))
+        self.assertEqual(self.mgr._ready_checks(labs["windows"])[1], 2400)
 
     def test_ready_fallback_to_tcp(self):
         lab = Lab("t", Path("/nonexistent-lab-dir"), Path("/x/compose.yml"),
                   [(1234, 80), (1235, 81)])
-        self.assertEqual(
-            self.mgr._ready_checks(lab), [("tcp", 1234, ""), ("tcp", 1235, "")]
-        )
+        checks, timeout = self.mgr._ready_checks(lab)
+        self.assertEqual(checks, [("tcp", 1234, ""), ("tcp", 1235, "")])
+        self.assertIsNone(timeout)
 
     def test_no_docker_installed(self):
         with mock.patch("core.lab.shutil.which", return_value=None):
@@ -166,6 +178,16 @@ class TestComposeInvocation(unittest.TestCase):
         self.assertEqual(cleaned, ["old"])
         rm_cmd = run.call_args_list[2][0][0]
         self.assertEqual(rm_cmd[-3:], ["rm", "-f", "abc123"])
+
+    def test_purge_invokes_full_teardown(self):
+        ok = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch("core.lab.subprocess.run", return_value=ok) as run:
+            self.mgr.purge("web")
+        cmd = run.call_args[0][0]
+        self.assertIn("down", cmd)
+        self.assertIn("--rmi", cmd)
+        self.assertIn("all", cmd)
+        self.assertIn("-v", cmd)
 
 
 if __name__ == "__main__":

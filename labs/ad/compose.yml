@@ -1,0 +1,13 @@
+services:
+  ad:
+    build: .
+    # CAP_SYS_ADMIN: samba provision + NT ACLs set security.NTACL xattrs,
+    # which docker's default capability set blocks (NT_STATUS_ACCESS_DENIED).
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      # impacket speaks AD ports only (389/88/445), so bind them 1:1 on
+      # loopback — docker (root) can take the low ports.
+      - "127.0.0.1:389:389"
+      - "127.0.0.1:88:88"
+      - "127.0.0.1:445:445"

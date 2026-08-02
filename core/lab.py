@@ -23,8 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# matches:  - "127.0.0.1:18080:8080"   (quoted or bare, optional /tcp /udp)
-_PORT_RE = re.compile(r'^\s*-\s*"?127\.0\.0\.1:(\d+):(\d+)(?:/(?:tcp|udp))?"?\s*$')
+from core import output
+
+# matches:  - "127.0.0.1:18080:8080"   (quoted or bare, optional /tcp /udp,
+# trailing comment ok)
+_PORT_RE = re.compile(
+    r'^\s*-\s*"?127\.0\.0\.1:(\d+):(\d+)(?:/(?:tcp|udp))?"?\s*(?:#.*)?$'
+)
 
 _DAEMON_DOWN_HINTS = (
     "cannot connect to the docker daemon",
@@ -97,6 +102,7 @@ class LabManager:
         return self._compose
 
     def _run(self, cmd: List[str]) -> subprocess.CompletedProcess:
+        output.print_debug(f"$ {' '.join(cmd)}")
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         except FileNotFoundError:
@@ -126,12 +132,12 @@ class LabManager:
     def up(self, name: str, ready_timeout: int = 30) -> Lab:
         lab = self.get(name)
         self._compose_run(name, "up", "-d", "--build")
-        self._wait_ready(lab, ready_timeout)
+        checks, timeout = self._ready_checks(lab)
+        self._wait_ready(lab, timeout or ready_timeout, checks)
         return lab
 
-    def _wait_ready(self, lab: Lab, timeout: int) -> None:
+    def _wait_ready(self, lab: Lab, timeout: int, checks) -> None:
         """Block until the lab's readiness checks all pass."""
-        checks = self._ready_checks(lab)
         pending = list(checks)
         deadline = time.time() + timeout
         while pending and time.time() < deadline:
@@ -141,12 +147,18 @@ class LabManager:
         if pending:
             raise LabError(
                 f"lab '{lab.name}' started but readiness check(s) failed "
-                f"-- check: docker compose -p forge-lab-{lab.name} logs"
+                f"-- check: docker compose -p {self.PROJECT_PREFIX}{lab.name} logs"
             )
 
-    def _ready_checks(self, lab: Lab) -> List[Tuple[str, int, str]]:
-        """Readiness checks from labs/<name>/READY, else TCP on every port."""
+    def _ready_checks(self, lab: Lab) -> Tuple[List[Tuple[str, int, str]], Optional[int]]:
+        """Readiness checks from labs/<name>/READY, else TCP on every port.
+
+        Directives: http <port> <path> | banner <port> | tcp <port> |
+        timeout <seconds> (overrides the default for slow-booting labs,
+        e.g. Windows installing on first start).
+        """
         checks = []
+        timeout = None
         ready_file = lab.path / "READY"
         if ready_file.is_file():
             for raw in ready_file.read_text(encoding="utf-8").splitlines():
@@ -155,7 +167,9 @@ class LabManager:
                     continue
                 parts = line.split(None, 2)
                 kind = parts[0]
-                if kind == "http" and len(parts) == 3:
+                if kind == "timeout" and len(parts) == 2:
+                    timeout = int(parts[1])
+                elif kind == "http" and len(parts) == 3:
                     checks.append(("http", int(parts[1]), parts[2]))
                 elif kind == "banner" and len(parts) == 2:
                     checks.append(("banner", int(parts[1]), ""))
@@ -163,7 +177,7 @@ class LabManager:
                     checks.append(("tcp", int(parts[1]), ""))
         if not checks:
             checks = [("tcp", hp, "") for hp, _ in lab.targets]
-        return checks
+        return checks, timeout
 
     @staticmethod
     def _check(kind: str, port: int, arg: str) -> bool:
@@ -190,6 +204,15 @@ class LabManager:
     def down(self, name: str) -> None:
         self.get(name)
         self._compose_run(name, "down", "--remove-orphans")
+
+    def purge(self, name: str) -> None:
+        """Full reclaim: containers, networks, volumes AND images.
+
+        Destroys everything the lab built or downloaded — the next `lab up`
+        rebuilds from scratch (for windows: reinstalls Windows, ~20 min).
+        """
+        self.get(name)
+        self._compose_run(name, "down", "--rmi", "all", "-v", "--remove-orphans")
 
     # -------------------------------------------------------------- janitor
     def running_projects(self) -> List[Tuple[str, str]]:

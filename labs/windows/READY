@@ -1,0 +1,5 @@
+# Windows installs on first boot (~20 min) — guest SMB only answers
+# once setup completes. Ctrl-C during the wait is safe: the install
+# keeps running in the container; `lab status` shows when it's up.
+timeout 2400
+tcp 1445

@@ -12,6 +12,7 @@ import contextlib
 import http.client
 import importlib.util
 import io
+import os
 import shutil
 import socket
 import subprocess
@@ -305,6 +306,39 @@ def impacket_available():
     return importlib.util.find_spec("impacket") is not None
 
 
+def windows_lab_enabled():
+    """Opt-in: first boot installs Windows (~20 min), so this is off
+    unless FORGE_WINDOWS_LAB=1 is set in the environment."""
+    return os.environ.get("FORGE_WINDOWS_LAB") == "1"
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestWindowsLab(unittest.TestCase):
+    """windows lab: real Windows Server answers SMB with the lab creds."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")  # READY waits for guest SMB (2400s cap)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def test_smb_login_and_admin_share(self):
+        from impacket.smbconnection import SMBConnection
+
+        conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=15)
+        try:
+            conn.login("labadmin", "Labpass2024!")
+            # psexec's precondition: ADMIN$ must be reachable
+            conn.connectTree("ADMIN$")
+        finally:
+            conn.close()
+
+
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestSmbEnumLab(unittest.TestCase):
@@ -353,6 +387,70 @@ class TestSmbEnumLab(unittest.TestCase):
             loot = console.store.loot("smb-shares")
             self.assertEqual(len(loot), 1)
             self.assertIn("public", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdEnumLab(unittest.TestCase):
+    """ad_enum against the Samba AD DC lab (provisions on first boot)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        # first boot provisions the domain (~30-60s) — poll a real bind
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_ad_enum_collates_domain(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/ad_enum",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertIn("analyst", out)
+            self.assertIn("backup_svc", out)
+            self.assertIn("KERBEROASTABLE", out)
+            self.assertIn("Domain Admins: Administrator", out)
+            self.assertIn("policy:", out)
+            # collation: users + kerberoastable in loot, cred stored
+            users = console.store.loot("ad-users")
+            self.assertEqual(len(users), 1)
+            self.assertIn("analyst", users[0]["content"])
+            roast = console.store.loot("kerberoastable")
+            self.assertEqual(len(roast), 1)
+            self.assertIn("backup_svc", roast[0]["content"])
+            creds = console.store.creds()
+            self.assertEqual(len(creds), 1)
+            self.assertEqual(creds[0]["service"], "ldap")
         finally:
             console.store.close()
 

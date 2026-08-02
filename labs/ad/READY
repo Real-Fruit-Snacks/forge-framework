@@ -1,0 +1,4 @@
+# Ready when the DC listens on LDAP and SMB (docker-proxy accepts early,
+# so integration tests still poll at the protocol level).
+tcp 389
+tcp 445

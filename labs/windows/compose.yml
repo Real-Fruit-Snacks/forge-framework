@@ -1,0 +1,27 @@
+services:
+  windows:
+    # Windows Server 2022 eval in a KVM VM inside docker (dockur/windows).
+    # First boot downloads the ISO and installs unattended (~20 min);
+    # the disk persists in the win-data volume, so later boots are fast.
+    image: dockurr/windows
+    environment:
+      VERSION: "2022"
+      USERNAME: "labadmin"
+      PASSWORD: "Labpass2024!"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "32G"
+    devices:
+      - /dev/kvm
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "127.0.0.1:1445:445"    # impacket / SMB / psexec-class targets
+      - "127.0.0.1:13389:3389"  # RDP
+      - "127.0.0.1:8006:8006"   # noVNC web viewer (watch the install)
+    volumes:
+      - win-data:/storage
+    stop_grace_period: 2m
+
+volumes:
+  win-data:
