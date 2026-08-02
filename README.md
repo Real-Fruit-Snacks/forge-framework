@@ -1,48 +1,138 @@
-# forge
+<div align="center">
 
-A personal, Metasploit-style framework for CTF and pentest work, in pure
-Python (stdlib core). Load modules, set options, run them — with local
-docker labs to test everything end to end. You built it, so you know
-exactly how every piece works.
+# Forge
 
-**Documentation: [`wiki/Home.md`](wiki/Home.md)**
+A personal, Metasploit-style CTF/pentest framework — pure Python, stdlib core,
+with docker lab targets and a full test suite.
+
+[![Version](https://img.shields.io/badge/version-0.5.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
+[![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
+[![Tests](https://img.shields.io/badge/tests-184%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+
+</div>
+
+## Overview
+
+Forge is a modular offensive-security framework built the way Metasploit is
+organized — `use` a module, `set` options, `run` it — but small enough to read
+end-to-end and honest about what it does. Everything is tested against real
+services: the framework ships its own docker lab targets (web app, SSH server,
+Samba SMB, a Samba AD domain controller, and a full Windows Server VM), and
+every module is exercised against them.
+
+Findings compound: scans write to a persistent workspace (hosts, services,
+credentials, loot), login modules try stored credentials before wordlists,
+and one command exports an engagement report.
+
+## Features
+
+- **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
+  history, resource files, output spooling with session capture
+- **16 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
+  enumeration, HTTP/SSH brute force, kerberoast + AS-REP roast, reverse-shell
+  handler, and a payload set (bash, python, PHP, PowerShell, shellcode,
+  encoders)
+- **Background jobs** — thread-based with captured output and cooperative stop
+- **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
+  Ctrl-] detach
+- **Evidence layer** — SQLite workspace with hosts/services/creds/loot,
+  file-loot blobs, Markdown/JSON reports, spool logs for exam evidence
+- **Docker labs** — five throwaway targets with readiness checks, automatic
+  teardown on exit, janitor (`lab clean`) and full reclaim (`lab purge`)
+- **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
+- **184 tests** — unit plus docker-gated integration running real modules
+  against real labs
 
 ## Quick start
 
 ```bash
-./forge.py            # or: python3 forge.py
-# or install it: pipx install .   →   forge command, isolated venv
+pipx install git+https://github.com/Real-Fruit-Snacks/forge-framework
+forge
+```
+
+Or from the repo (stdlib only, no install needed):
+
+```bash
+git clone https://github.com/Real-Fruit-Snacks/forge-framework
+cd forge-framework
+./forge.py
 ```
 
 ```
-forge > lab up web                          # local target
+  _____ ___  ____   ____ _____
+ |  ___/ _ \|  _ \ / ___| ____|
+ | |_ | | | | |_) | |  _|  _|
+ |  _|| |_| |  _ <| |_| | |___
+ |_|   \___/|_| \_\\____|_____|
+       forge v0.5 -- personal CTF/pentest framework
++ -- --=[ 16 modules loaded
+
+forge > lab up web
 forge > use auxiliary/scanner/dir_buster
 forge (auxiliary/scanner/dir_buster) > set RHOSTS 127.0.0.1
 forge (auxiliary/scanner/dir_buster) > set RPORT 18080
 forge (auxiliary/scanner/dir_buster) > set WORDLIST labs/web/wordlists/dirs.txt
+forge (auxiliary/scanner/dir_buster) > set RECURSE true
 forge (auxiliary/scanner/dir_buster) > run
 ```
 
-Flags: `-q` (no banner) · `-x "cmd; cmd"` · `-r file.rc` · `--no-color`.
-Your data lives in `~/.forge/` (override with `FORGE_HOME`).
+Catch a reverse shell:
 
-## What it does
+```
+forge > use exploits/multi/handler
+forge (exploits/multi/handler) > set LPORT 4444
+forge (exploits/multi/handler) > run -j
+forge (exploits/multi/handler) > use payloads/bash_reverse_tcp
+forge (payloads/bash_reverse_tcp) > set LHOST 10.10.14.5
+forge (payloads/bash_reverse_tcp) > generate
+# [+] Session 1 opened — sessions -i 1, sessions -u 1 for the pty upgrade
+```
 
-- msfconsole-style REPL: `use` / `set` / `show options` / `run`, tab
-  completion, persistent history
-- background jobs with captured output and cooperative stop
-- reverse-shell handler → sessions with pty upgrade and live resize sync
-- evidence layer: workspaces, hosts/services/creds/loot (SQLite,
-  self-migrating), spool logs, Markdown/JSON reports
-- docker labs (web/ssh/smb) for testing against real services —
-  `lab up web`
-- 14 bundled modules: scanners, login brute force, handler, payloads,
-  encoders — all tested (152 tests, `python3 -m unittest discover -s tests`)
+## Lab targets
 
-## Read next
+| Lab | Target | Purpose |
+|---|---|---|
+| `web` | `127.0.0.1:18080` | dir busting, HTTP brute force, scanner fixtures |
+| `ssh` | `127.0.0.1:12222` | SSH brute force with weak users |
+| `smb` | `127.0.0.1:10139/10445` | SMB shares, signing-policy checks |
+| `ad` | `127.0.0.1:389/88/445` | Samba AD DC (FORGE.LOCAL) with roastable fixtures |
+| `windows` | `127.0.0.1:1445/13389` | Windows Server 2022 VM for psexec/wmiexec-class work |
 
-- [Getting started](wiki/Getting-Started.md)
-- [All commands](wiki/Console-Commands.md)
-- [Writing modules](wiki/Modules.md)
-- [Workflows / playbooks](wiki/Workflows.md)
-- [Troubleshooting](wiki/Troubleshooting.md)
+`lab up <name>` builds and starts a target; labs are torn down on exit and
+can be fully reclaimed with `lab purge <name>`. Each lab has a build README
+in `labs/<name>/`.
+
+## Requirements
+
+Core and bundled modules are standard-library only. Some modules declare
+optional dependencies and refuse to run until present: `paramiko` (SSH),
+`impacket` (SMB/AD/kerberos), `pwntools` (shellcode). Docker powers the labs.
+
+```bash
+pipx inject forge paramiko impacket pwntools   # into the pipx venv
+# or system-wide on Arch: sudo pacman -S python-paramiko python-pwntools
+```
+
+## Documentation
+
+The full documentation lives in the [wiki](wiki/Home.md):
+
+- [Getting started](wiki/Getting-Started.md) and [console commands](wiki/Console-Commands.md)
+- [Writing modules](wiki/Modules.md) and [core architecture](wiki/Core-Architecture.md)
+- [Labs](wiki/Labs.md) (including the hard-won gotcha collection) and [testing](wiki/Testing.md)
+- [Workflows / playbooks](wiki/Workflows.md) and [troubleshooting](wiki/Troubleshooting.md)
+
+## Testing
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Integration tests self-skip without docker or module dependencies; on a full
+machine they build the labs, run real modules against them, and assert on
+both output and stored evidence.
+
+## License
+
+[MIT](LICENSE)
