@@ -40,6 +40,8 @@ def apply(console, config: Optional[Dict]) -> None:
     general = config.get("general", {})
     if general.get("color") is False:
         output.color_enabled = False
+    if general.get("debug") is True:
+        output.debug_enabled = True
     for name, value in config.get("options", {}).items():
         console.global_options[str(name).upper()] = str(value)
     workspace = general.get("workspace")

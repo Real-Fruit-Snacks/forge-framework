@@ -31,6 +31,7 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 
 color_enabled = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+debug_enabled = os.environ.get("FORGE_DEBUG", "").lower() in ("1", "true", "on")
 
 # Per-thread capture buffer; set by capture() on job threads.
 _local = threading.local()
@@ -126,6 +127,16 @@ def print_error(msg: object) -> None:
 
 def print_warning(msg: object) -> None:
     _emit("[!]", WARM, msg)
+
+
+def print_debug(msg: object) -> None:
+    """Verbose tracing — shown only when debug is on ('debug on', config,
+    or FORGE_DEBUG=1), and always recorded to the debug log."""
+    from core import log  # late import: log.py has no core deps
+
+    log.get().debug("%s", msg)
+    if debug_enabled:
+        _emit("[D]", TEXT_FAINT, msg)
 
 
 def print_line(msg: object = "") -> None:

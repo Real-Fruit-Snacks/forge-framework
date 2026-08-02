@@ -197,6 +197,7 @@ class DirBuster(AuxiliaryModule):
             # e.g. a consistent 404 page: a fingerprint, but one that can
             # never pollute the report — don't cry wolf.
             wildcard = None
+        self.print_debug(f"{host}: wildcard fingerprint={wildcard}")
         if wildcard:
             self.print_warning(
                 f"{host}: soft-404 detected (every path answers "
@@ -217,6 +218,10 @@ class DirBuster(AuxiliaryModule):
             found, done = self._scan_level(probe, paths, codes, wildcard)
             found_all.extend(found)
             done_total += done
+            self.print_debug(
+                f"{host}: depth {depth}, {len(paths)} probes, "
+                f"{len(found)} interesting"
+            )
             if not recurse or depth >= max_depth:
                 break
             candidates = sorted(

@@ -77,6 +77,7 @@ class SmbEnum(AuxiliaryModule):
         except Exception as e:
             self.print_error(f"{host}:{port} - {e}")
             return
+        self.print_debug(f"{host}: server signing required = {signing}")
         if signing:
             self.print_status(f"{host}: SMB signing required")
         else:
@@ -93,6 +94,7 @@ class SmbEnum(AuxiliaryModule):
         try:
             os_info = conn.getServerOS() or "(OS string not reported)"
             self.print_good(f"{host}: {os_info}")
+            self.print_debug(f"{host}: dialect=0x{conn.getDialect():x}")
 
             who = user or "<null session>"
             try:

@@ -60,6 +60,18 @@ class TestApply(unittest.TestCase):
             output.color_enabled = False
             console.store.close()
 
+    def test_debug_flag_applies(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            output.debug_enabled = False
+            config.apply(console, {"general": {"debug": True}})
+            self.assertTrue(output.debug_enabled)
+        finally:
+            output.debug_enabled = False
+            console.store.close()
+
     def test_none_is_a_noop(self):
         registry = ModuleRegistry(ROOT / "modules")
         registry.load()

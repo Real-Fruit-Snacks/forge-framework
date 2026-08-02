@@ -15,6 +15,8 @@ import queue
 import threading
 from typing import Any, Callable, List, Optional, Tuple
 
+from core import output
+
 
 def brute_force(
     combos: List[Tuple[str, str]],
@@ -71,4 +73,9 @@ def brute_force(
     fed.set()
     for t in pool:
         t.join(timeout=join_timeout)
+    output.print_debug(
+        f"brute engine: {attempts[0]}/{len(combos)} attempts, "
+        f"{len(found)} hits, {errors[0]} errors, "
+        f"{'stopped early' if stop.is_set() else 'exhausted'}"
+    )
     return found, attempts[0], errors[0]

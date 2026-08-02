@@ -51,6 +51,10 @@ class HttpHeaders(AuxiliaryModule):
             title = re.search(r"<title[^>]*>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
             if title:
                 self.print_status(f"  Title: {title.group(1).strip()}")
+            self.print_debug(
+                f"{host}:{port} {resp.status}, server={server!r}, "
+                f"title={'yes' if title else 'no'}, body={len(body)}b"
+            )
             store = getattr(self.framework, "store", None)
             if store is not None:
                 store.add_service(host, port, name=scheme, info=server or "")

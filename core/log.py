@@ -27,7 +27,7 @@ def setup(home) -> None:
         "%(asctime)s %(levelname)s %(message)s"
     ))
     _logger.addHandler(handler)
-    _logger.setLevel(logging.INFO)
+    _logger.setLevel(logging.DEBUG)  # file gets everything; console filters
 
 
 def get() -> logging.Logger:

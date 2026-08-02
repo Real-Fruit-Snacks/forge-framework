@@ -66,7 +66,10 @@ class SshLogin(AuxiliaryModule):
             return "success"
         except paramiko.AuthenticationException:
             return "fail"
-        except (paramiko.SSHException, EOFError, socket.error, OSError):
+        except (paramiko.SSHException, EOFError, socket.error, OSError) as e:
+            self.print_debug(
+                f"{host}:{port} {user}:{password} -> {type(e).__name__}: {e}"
+            )
             return "error"
         finally:
             client.close()

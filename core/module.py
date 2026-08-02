@@ -90,6 +90,9 @@ class BaseModule:
     def print_warning(self, msg: object) -> None:
         output.print_warning(msg)
 
+    def print_debug(self, msg: object) -> None:
+        output.print_debug(msg)
+
     def print_line(self, msg: object = "") -> None:
         output.print_line(msg)
 

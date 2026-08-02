@@ -33,5 +33,27 @@ class TestSpoolWrite(unittest.TestCase):
         self.assertIn("plain line", buf.getvalue())
 
 
+class TestDebug(unittest.TestCase):
+    def tearDown(self):
+        output.debug_enabled = False
+
+    def test_debug_suppressed_by_default(self):
+        import contextlib
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            output.print_debug("secret detail")
+        self.assertEqual(buf.getvalue(), "")
+
+    def test_debug_shown_when_enabled(self):
+        import contextlib
+
+        output.debug_enabled = True
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            output.print_debug("secret detail")
+        self.assertIn("secret detail", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

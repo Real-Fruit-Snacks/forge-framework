@@ -215,6 +215,9 @@ class HttpLogin(AuxiliaryModule):
                         f"{host}: failure baseline is {baseline[0]}/{baseline[1]}b "
                         "-- flagging deviations"
                     )
+                    self.print_debug(
+                        f"{host}: baseline body: {baseline_res.text[:200]!r}"
+                    )
                 else:
                     self.print_error(f"{host}:{port} unreachable")
                     return
