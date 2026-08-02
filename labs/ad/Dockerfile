@@ -3,7 +3,7 @@ FROM debian:bookworm-slim
 # Samba AD Domain Controller — Active Directory lab for enum modules.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       samba-ad-dc samba-ad-provision krb5-kdc \
+       samba-ad-dc samba-ad-provision krb5-kdc ldb-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Provision happens at RUNTIME (entrypoint.sh), fresh on every start:

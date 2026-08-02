@@ -18,9 +18,16 @@ samba-tool user create analyst 'Summer2024!' --given-name=Ana --surname=Lyst
 samba-tool user create backup_svc 'Backup2024!'
 samba-tool user setexpiry --noexpiry backup_svc
 samba-tool spn add HTTP/web.forge.local backup_svc
+# asreproastable fixture: DONT_REQUIRE_PREAUTH (0x400000 = 4194304) on top
+# of a normal account (512) -> 4194816
+samba-tool user create noauth 'Noauth2024!'
+printf 'dn: CN=noauth,CN=Users,DC=forge,DC=local\nchangetype: modify\nreplace: userAccountControl\nuserAccountControl: 4194816\n' \
+    > /tmp/preauth.ldif
+ldbmodify -H /var/lib/samba/private/sam.ldb /tmp/preauth.ldif
+rm /tmp/preauth.ldif
 printf '[shared]\n   path = /srv/shared\n   read only = yes\n   guest ok = yes\n' \
     >> /etc/samba/smb.conf
 mkdir -p /srv/shared
 echo 'flag{ad_l4b_sh4re}' > /srv/shared/readme.txt
 
-exec samba -i
+exec samba -i -d3

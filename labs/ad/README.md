@@ -12,7 +12,10 @@ fresh on every boot** (stateless — no volume).
 - `Administrator / P@ssw0rd123`
 - `analyst / Summer2024!` (normal user)
 - `backup_svc / Backup2024!` with SPN `HTTP/web.forge.local`
-  (kerberoastable)
+  (kerberoastable — works with the kerberoast module)
+- `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but see the
+  caveat below: this KDC build ignores the flag, so it answers
+  PREAUTH_REQUIRED like everyone else)
 - `[shared]` guest-readable share with a flag file
 
 **The four hard lessons baked into this build** (all in

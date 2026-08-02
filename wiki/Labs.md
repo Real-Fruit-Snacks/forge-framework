@@ -92,6 +92,17 @@ GUI-driven work.
   modern samba, don't reach for it.
 - **impacket's LDAPConnection doesn't parse URL ports** — `ldap://host`
   is 389, always. AD labs bind 1:1 on loopback for this reason.
+- **Samba's Heimdal KDC requires the authenticator cksum field** — RFC
+  calls it optional and impacket omits it, so `getKerberosTGS` fails with
+  `KRB_AP_ERR_INAPP_CKSUM` on Samba ("No authenticator in request"). The
+  kerberoast module vendors its own TGS-REQ with the checksum (HMAC over
+  the req-body, usage 6). Also: don't set the `renew` kdc-option like
+  impacket does — Heimdal takes it literally and dies with
+  `KDC_ERR_NEVER_VALID` while Windows just clamps.
+- **Samba's KDC doesn't honor UF_DONT_REQUIRE_PREAUTH** (this build) —
+  every account gets PREAUTH_REQUIRED, so AS-REP roasting can't be tested
+  against the bundled lab. The asreproast module works against Windows
+  KDCs; against Samba it must (and does) skip cleanly.
 - **Provisioning needs `samba-ad-provision`** — the schema files for
   `samba-tool domain provision` live in a separate package from
   `samba-ad-dc`; without it the build dies with "File not found".
