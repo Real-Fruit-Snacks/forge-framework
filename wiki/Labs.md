@@ -13,7 +13,15 @@ forge > lab clean           # janitor: tear down EVERY framework lab
 
 Lifecycle guarantees: labs you start are torn down on `exit`; containers
 have no restart policy (nothing survives reboot); `lab clean` removes even
-orphans whose lab directory was deleted (compose-label surgery).
+orphans whose lab directory was deleted (compose-label surgery); and
+`lab purge <name>` destroys a lab entirely (containers, volumes, images —
+asks first) when you want the disk back.
+
+**Disk policy:** containers and networks are freed aggressively; images
+and volumes are kept deliberately — they're the expensive parts to remake
+(minutes for images, ~20 min for the Windows install, whose disk is
+~34GB). Reclaim with `lab purge <name>`; house-clean dangling layers from
+rebuilds occasionally with `docker image prune`.
 
 ## Shipped labs
 
@@ -22,6 +30,13 @@ orphans whose lab directory was deleted (compose-label surgery).
 | `web` | `127.0.0.1:18080` | dir busting, HTTP brute, scanners | basic/form: `admin:hunter2` |
 | `ssh` | `127.0.0.1:12222` | ssh_login, SSH work | `admin:admin`, `user:password`, `root:toor` |
 | `smb` | `127.0.0.1:10139` + `10445` | SMB/impacket modules | guest share `public`; `labuser:labpass` |
+| `ad` | `127.0.0.1:389` + `88` + `445` | AD enumeration (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` |
+| `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
+
+Each lab has its own **build README** in its directory (`labs/<name>/README.md`)
+— what it's for, exactly how it's built, fixtures, and the gotchas it
+took to get there. That's the replication record for future-you and
+anyone else.
 
 The web lab is deterministic by design (route table at the top of
 `labs/web/app.py`): hidden 200s, a 403, a 401 realm, a login form, nested
@@ -45,13 +60,18 @@ Good candidates: `ftp` (vsftpd, anonymous), `mysql`/`postgres`, `mssql`,
 
 ## The Windows question
 
-Samba covers protocol-level impacket work (smbclient/rpcdump/samrdump
-class). It does NOT emulate Windows service control, so psexec/wmiexec
-modules need a real Windows box. Options: a local eval VM
-(`virt-install` — this machine has KVM), or a cloud trial. Either way,
-just `set RHOSTS <ip>` — modules don't care where the target lives.
-Automating Windows installs into the framework is deliberately out of
-scope: containers are seconds, Windows ISOs are yak-shaving.
+**Solved**: the `windows` lab runs a real Windows Server in a KVM VM
+inside docker ([dockur/windows](https://github.com/dockur/windows)) —
+psexec/wmiexec/ADMIN$/RDP all work. First boot installs the OS (~20 min,
+watch at `http://127.0.0.1:8006`); the disk persists in a volume so later
+boots are fast. See `labs/windows/README.md`.
+
+Samba (the `smb` lab) still covers protocol-level impacket work
+(smbclient/rpcdump/samrdump class) with far less weight, and the `ad` lab
+covers domain-level LDAP/Kerberos. Use the windows lab when you need
+service control or a genuine Windows auth stack; a local eval VM
+(`virt-install`) or a cloud trial remain the answer for heavier,
+GUI-driven work.
 
 ## Gotcha collection (learned the hard way)
 
@@ -62,3 +82,16 @@ scope: containers are seconds, Windows ISOs are yak-shaving.
 - **Debian smbd logging flag** is `--debug-stdout`, not `--log-stdout` —
   the wrong flag kills the container silently at start.
 - **docker-proxy eats your readiness check** — see `READY` files above.
+- **Samba AD DC needs CAP_SYS_ADMIN** — NT ACLs are `security.NTACL`
+  xattrs; docker's default capabilities drop SYS_ADMIN and provision dies
+  with `NT_STATUS_ACCESS_DENIED` (not an xattr/filesystem problem, though
+  it looks like one). The `ad` lab grants it in compose.yml.
+- **Samba provision belongs at runtime, not build time** — overlayfs
+  rootfs blocks the ACL work regardless; the `ad` lab provisions in its
+  entrypoint on a host-backed volume. `--use-ntvfs` no longer exists in
+  modern samba, don't reach for it.
+- **impacket's LDAPConnection doesn't parse URL ports** — `ldap://host`
+  is 389, always. AD labs bind 1:1 on loopback for this reason.
+- **Provisioning needs `samba-ad-provision`** — the schema files for
+  `samba-tool domain provision` live in a separate package from
+  `samba-ad-dc`; without it the build dies with "File not found".

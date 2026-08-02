@@ -45,6 +45,7 @@ wiki/               you are here
 | `auxiliary/scanner/http_headers` | Web server fingerprinting |
 | `auxiliary/scanner/dir_buster` | Content discovery (recursion, wildcard filtering) |
 | `auxiliary/scanner/smb_enum` | SMB shares + signing policy (impacket) |
+| `auxiliary/enum/ad_enum` | AD domain enumeration over LDAP (impacket) |
 | `auxiliary/login/http_login` | HTTP basic/form brute force |
 | `auxiliary/login/ssh_login` | SSH brute force (paramiko) |
 | `exploits/multi/handler` | Reverse-shell listener → sessions |

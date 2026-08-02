@@ -51,6 +51,7 @@ module asks `creds_for` before touching a wordlist.
 workspace = "default"   # switch to this on boot
 color = true            # false = --no-color every time
 spool = "auto"          # "auto" = timestamped log in logs/, or a path
+debug = false           # true = verbose [D] debug output from boot
 
 [options]               # applied as `setg` on boot
 LHOST = "tun0"

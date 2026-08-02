@@ -634,10 +634,23 @@ class FrameworkConsole(cmd.Cmd):
             except ValueError:
                 output.print_error(f"Bad loot id: {parts[1]}")
                 return
-            if self.store.delete_loot(lid):
-                output.print_good(f"Deleted loot {lid}")
-            else:
+            entry = self.store.loot_get(lid)
+            if entry is None:
                 output.print_error(f"No loot {lid} in this workspace")
+                return
+            content = entry["content"]
+            if not self.store.delete_loot(lid):
+                output.print_error(f"No loot {lid} in this workspace")
+                return
+            output.print_good(f"Deleted loot {lid}")
+            # file loot: remove the blob too, or it orphans on disk forever
+            if content.startswith("file:"):
+                blob = Path(content[5:])
+                try:
+                    blob.unlink()
+                    output.print_good(f"Deleted loot file {blob}")
+                except OSError:
+                    output.print_warning(f"Loot file already gone: {blob}")
             return
         output.print_error(
             "Usage: loot [-t type] | -i <id> | -d <id> | -a <type> <label> <text>"
@@ -661,7 +674,7 @@ class FrameworkConsole(cmd.Cmd):
 
     # -------------------------------------------------------------------- labs
     def do_lab(self, arg: str) -> None:
-        """Manage test labs: lab | lab up|down|status <name> | lab clean"""
+        """Manage test labs: lab | lab up|down|status <name> | lab clean | lab purge <name>"""
         parts = self._split(arg)
         if parts is None:
             return
@@ -683,16 +696,59 @@ class FrameworkConsole(cmd.Cmd):
         action, rest = parts[0], parts[1:]
         if action == "clean" and not rest:
             try:
+                projects = self.lab_manager.running_projects()
+            except LabError as e:
+                output.print_error(str(e))
+                return
+            if not projects:
+                output.print_line("No framework labs running.")
+                return
+            output.print_warning(
+                f"clean tears down {len(projects)} running lab(s), including "
+                "any started by other sessions"
+            )
+            try:
+                answer = input("continue? [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() != "y":
+                output.print_status("Clean aborted")
+                return
+            try:
                 cleaned = self.lab_manager.clean()
             except LabError as e:
                 output.print_error(str(e))
                 return
-            if not cleaned:
-                output.print_line("No framework labs running.")
-                return
             for name in cleaned:
                 self._labs_started.discard(name)
                 output.print_good(f"Tore down lab '{name}'")
+            return
+        if action == "purge" and len(rest) == 1:
+            name = rest[0]
+            try:
+                self.lab_manager.get(name)
+            except LabError as e:
+                output.print_error(str(e))
+                return
+            output.print_warning(
+                f"purge destroys lab '{name}' entirely: containers, volumes, "
+                "and images — next 'lab up' rebuilds from scratch"
+                + (" (Windows reinstall, ~20 min)" if name == "windows" else "")
+            )
+            try:
+                answer = input("purge it? [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() != "y":
+                output.print_status("Purge aborted")
+                return
+            try:
+                self.lab_manager.purge(name)
+            except LabError as e:
+                output.print_error(str(e))
+                return
+            self._labs_started.discard(name)
+            output.print_good(f"Purged lab '{name}'")
             return
         if action in ("up", "down", "status") and len(rest) == 1:
             name = rest[0]
@@ -719,10 +775,24 @@ class FrameworkConsole(cmd.Cmd):
                 output.print_error(str(e))
             return
         output.print_error(
-            "Usage: lab | lab up <name> | lab down <name> | lab status <name> | lab clean"
+            "Usage: lab | lab up <name> | lab down <name> | lab status <name> | lab clean | lab purge <name>"
         )
 
     # ------------------------------------------------------------------- misc
+    def do_debug(self, arg: str) -> None:
+        """Toggle verbose debug output: debug [on|off] (also FORGE_DEBUG=1,
+        or debug = true in config.toml)"""
+        state = arg.strip().lower()
+        if state in ("on", "true", "1"):
+            output.debug_enabled = True
+        elif state in ("off", "false", "0"):
+            output.debug_enabled = False
+        elif state:
+            output.print_error("Usage: debug [on|off]")
+            return
+        current = "on" if output.debug_enabled else "off"
+        output.print_status(f"Debug output: {current}")
+
     def do_resource(self, arg: str):
         """Run console commands from a file: resource <file>  ('#' comments ok)"""
         target = arg.strip()
@@ -909,7 +979,8 @@ class FrameworkConsole(cmd.Cmd):
 
     def complete_lab(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if len(line[:begidx].split()) < 2:
-            return [a for a in ("up", "down", "status", "clean") if a.startswith(text)]
+            return [a for a in ("up", "down", "status", "clean", "purge")
+                    if a.startswith(text)]
         return [n for n in self.lab_manager.labs() if n.startswith(text)]
 
     def _option_names(self, text: str) -> List[str]:

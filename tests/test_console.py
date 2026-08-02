@@ -256,10 +256,31 @@ class TestLabTeardown(unittest.TestCase):
 
     def test_lab_clean_clears_session_tracking(self):
         self.lab_mgr.clean.return_value = ["web"]
-        out = run(self.console, "lab up web", "lab clean", "exit")
+        self.lab_mgr.running_projects.return_value = [("forge-lab-web", "/x")]
+        with mock.patch("builtins.input", return_value="y"):
+            out = run(self.console, "lab up web", "lab clean", "exit")
         self.assertIn("Tore down lab 'web'", out)
         # clean handled the teardown; exit must not down it again
         self.lab_mgr.down.assert_not_called()
+
+    def test_lab_clean_aborted(self):
+        self.lab_mgr.running_projects.return_value = [("forge-lab-web", "/x")]
+        with mock.patch("builtins.input", return_value="n"):
+            out = run(self.console, "lab clean")
+        self.assertIn("Clean aborted", out)
+        self.lab_mgr.clean.assert_not_called()
+
+    def test_lab_purge_confirmed(self):
+        with mock.patch("builtins.input", return_value="y"):
+            out = run(self.console, "lab purge web")
+        self.assertIn("Purged lab 'web'", out)
+        self.lab_mgr.purge.assert_called_once_with("web")
+
+    def test_lab_purge_aborted(self):
+        with mock.patch("builtins.input", return_value="n"):
+            out = run(self.console, "lab purge web")
+        self.assertIn("Purge aborted", out)
+        self.lab_mgr.purge.assert_not_called()
 
 
 class TestDataCommands(unittest.TestCase):
@@ -311,6 +332,22 @@ class TestDataCommands(unittest.TestCase):
             self.assertIn("Saved file loot 1", out)
             self.assertIn("File loot:", out)
             self.assertIn("ssh-private-key-contents", out)
+
+    def test_loot_delete_removes_blob(self):
+        import core.store as store_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "key.txt"
+            src.write_text("ssh-private-key-contents")
+            self.console.store = store_mod.Store(":memory:",
+                                                 loot_dir=Path(tmp) / "blobs")
+            run(self.console, f"loot -f file ssh-key {src}")
+            blob = next((Path(tmp) / "blobs").iterdir())
+            out = run(self.console, "loot -d 1")
+            self.assertIn("Deleted loot 1", out)
+            self.assertIn("Deleted loot file", out)
+            self.assertFalse(blob.exists())
+            self.assertEqual(self.console.store.loot(), [])
 
     def test_report_markdown_and_json(self):
         import json as _json
@@ -377,6 +414,23 @@ class TestPathCompletion(unittest.TestCase):
                 matches = console._path_complete(str(Path(tmp) / "s"))
                 self.assertEqual(matches, [str(Path(tmp) / "subdir") + "/"])
         finally:
+            console.store.close()
+
+
+class TestDebugCommand(unittest.TestCase):
+    def test_debug_toggle(self):
+        console = make_console()
+        try:
+            out = run(console, "debug on")
+            self.assertIn("on", out)
+            self.assertTrue(output.debug_enabled)
+            out = run(console, "debug off")
+            self.assertIn("off", out)
+            self.assertFalse(output.debug_enabled)
+            out = run(console, "debug nonsense")
+            self.assertIn("Usage", out)
+        finally:
+            output.debug_enabled = False
             console.store.close()
 
 

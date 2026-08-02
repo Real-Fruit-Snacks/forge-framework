@@ -40,9 +40,9 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- more payloads (bash, php, powershell reverse one-liners)
+- AD growth path on `ad_enum` + the `ad` lab: kerberoast TGS extraction
+  (impacket GetUserSPNs), AS-REP roasting, delegation enumeration, ADCS
 - more encoders (hex, badchar-aware shellcode transforms)
-- deeper impacket enumeration (samrdump/lookupsid-style user enum)
 - pwntools exploit helpers (cyclic, ROP chains) for pwn work
 - C2-style session channels
 

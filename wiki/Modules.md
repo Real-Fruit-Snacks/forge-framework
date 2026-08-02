@@ -48,6 +48,9 @@ Rules of the road:
   `setg` globals (which are plain strings).
 - **Output only via `self.print_status/good/error/warning/line`** — job
   capture and spooling route through these; `print()` escapes both.
+  `self.print_debug(msg)` is for verbose tracing (wildcard fingerprints,
+  dialects, bind targets, engine stats): invisible until the user runs
+  `debug on`, always recorded in the debug log.
 - **Typed options validate at `set` time** — use `OptPort` for ports,
   `OptBool` for flags, `OptEnum` for modes. See [[Console-Commands]].
 

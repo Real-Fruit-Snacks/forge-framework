@@ -75,7 +75,7 @@ remote live (SIGWINCH, Penelope-style).
 | `loot -i <id>` | Show one entry (prints file contents for file loot) |
 | `loot -a <type> <label> <text>` | Add a text note |
 | `loot -f <type> <label> <path>` | Add a file (copied into `~/.forge/loot/`) |
-| `loot -d <id>` | Delete |
+| `loot -d <id>` | Delete (file loot: deletes the blob on disk too) |
 | `workspace [name]` | List or switch/create workspaces (per-engagement data) |
 | `report [file.md\|file.json]` | Export the workspace; no arg prints to screen |
 
@@ -87,7 +87,8 @@ remote live (SIGWINCH, Penelope-style).
 | `lab up <name>` | Build + start; waits for real readiness, prints targets |
 | `lab down <name>` | Stop + remove |
 | `lab status <name>` | Container state |
-| `lab clean` | Tear down EVERY framework lab (janitor, incl. other sessions') |
+| `lab clean` | Tear down EVERY framework lab — asks `y/N` first |
+| `lab purge <name>` | Destroy a lab fully: containers, volumes, images — reclaims disk (asks first) |
 
 Labs you start are torn down automatically on `exit`. See [[Labs]].
 
@@ -96,6 +97,7 @@ Labs you start are torn down automatically on `exit`. See [[Labs]].
 | Command | What it does |
 |---|---|
 | `resource <file>` | Run console commands from a file (`#` comments ok; nests 3 deep) |
+| `debug [on\|off]` | Toggle verbose `[D]` debug output (also `FORGE_DEBUG=1` or `debug = true` in config) |
 | `spool <file>` / `spool off` | Log all output (ANSI-stripped, append mode) — including session traffic |
 | `!<cmd>` | Run a local shell command (captured into output/spool) |
 | `help [cmd]` | Built-in help (every command above has a one-line docstring) |
