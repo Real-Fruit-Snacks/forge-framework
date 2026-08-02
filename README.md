@@ -11,7 +11,7 @@ exactly how every piece works.
 
 ```bash
 ./forge.py            # or: python3 forge.py
-# optional install: pip install -e .   →   framework
+# or install it: pipx install .   →   forge command, isolated venv
 ```
 
 ```

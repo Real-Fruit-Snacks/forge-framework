@@ -7,7 +7,16 @@ cd ~/coding/Projects/framework
 ./forge.py            # that's it — stdlib only
 ```
 
-Optional: `pip install -e .` gives you a `framework` command anywhere.
+Or install it as a real command, isolated (the Arch-clean way):
+
+```bash
+pipx install .                                        # from the checkout
+pipx install git+https://github.com/Real-Fruit-Snacks/forge-framework  # from the repo
+forge
+```
+
+A pipx install sees only stdlib + whatever you `pipx inject` into it
+(`pipx inject forge paramiko impacket pwntools` for the full module set).
 
 Prerequisites for the full experience:
 

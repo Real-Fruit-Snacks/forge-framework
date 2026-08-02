@@ -46,6 +46,16 @@ def framework_home() -> Path:
     return new
 
 
+def bundled_dirs():
+    """Locate bundled modules/ and labs/: repo layout (dev) first, then
+    the installed share/forge/ layout (pipx/pip installs)."""
+    here = Path(__file__).resolve().parent
+    if (here / "modules").is_dir():
+        return here / "modules", here / "labs"
+    share = Path(sys.prefix) / "share" / "forge"
+    return share / "modules", share / "labs"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Forge — personal CTF/pentest framework")
     parser.add_argument(
@@ -67,12 +77,12 @@ def main() -> None:
     (home / "modules").mkdir(parents=True, exist_ok=True)
     log.setup(home)
 
-    bundled = Path(__file__).resolve().parent / "modules"
-    registry = ModuleRegistry([bundled, home / "modules"])
+    bundled_modules, bundled_labs = bundled_dirs()
+    registry = ModuleRegistry([bundled_modules, home / "modules"])
     registry.load()
 
     store = Store(home / "framework.db", loot_dir=home / "loot")
-    labs = LabManager(Path(__file__).resolve().parent / "labs")
+    labs = LabManager(bundled_labs)
     console = FrameworkConsole(registry, store, labs, home / "history")
     atexit.register(console._shutdown_labs)  # crash insurance; idempotent
     atexit.register(console.save_history)

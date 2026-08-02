@@ -16,3 +16,6 @@ forge = "forge:main"
 [tool.setuptools]
 packages = ["core"]
 py-modules = ["forge"]
+
+# bundled modules/ and labs/ are installed as data via setup.py
+# (setuptools data-files doesn't expand recursive globs)
