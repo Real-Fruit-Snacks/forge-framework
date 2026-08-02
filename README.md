@@ -29,19 +29,21 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **16 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
-  enumeration, HTTP/SSH brute force, kerberoast + AS-REP roast, reverse-shell
-  handler, and a payload set (bash, python, PHP, PowerShell, shellcode,
-  encoders)
+- **18 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
+  enumeration (including delegation), HTTP/SSH brute force, kerberoast +
+  AS-REP roast, DCSync, reverse-shell handler, and a payload set (bash,
+  python, PHP, PowerShell, shellcode, encoders)
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
 - **Evidence layer** — SQLite workspace with hosts/services/creds/loot,
   file-loot blobs, Markdown/JSON reports, spool logs for exam evidence
-- **Docker labs** — five throwaway targets with readiness checks, automatic
-  teardown on exit, janitor (`lab clean`) and full reclaim (`lab purge`)
+- **Docker labs** — seven throwaway targets (web, ssh, smb, Samba AD,
+  Windows Server, Windows 11 client, a full mini-domain) with readiness
+  checks, automatic teardown on exit, janitor (`lab clean`) and full
+  reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **184 tests** — unit plus docker-gated integration running real modules
+- **207 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -66,7 +68,7 @@ cd forge-framework
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- personal CTF/pentest framework
-+ -- --=[ 16 modules loaded
++ -- --=[ 18 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster
@@ -96,7 +98,7 @@ forge (payloads/bash_reverse_tcp) > generate
 | `web` | `127.0.0.1:18080` | dir busting, HTTP brute force, scanner fixtures |
 | `ssh` | `127.0.0.1:12222` | SSH brute force with weak users |
 | `smb` | `127.0.0.1:10139/10445` | SMB shares, signing-policy checks |
-| `ad` | `127.0.0.1:389/88/445` | Samba AD DC (FORGE.LOCAL) with roastable fixtures |
+| `ad` | `127.0.0.1:389/88/445/135` | Samba AD DC (FORGE.LOCAL) with roastable + delegation fixtures |
 | `windows` | `127.0.0.1:1445/13389` | Windows Server 2022 VM for psexec/wmiexec-class work |
 | `workstation` | `127.0.0.1:2445/23389` | Windows 11 client VM |
 | `domain` | DC `389/88/445`, member `3445/33389` | small AD domain: Samba DC + auto-joining Win11 member |

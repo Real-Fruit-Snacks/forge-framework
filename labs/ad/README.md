@@ -12,7 +12,13 @@ fresh on every boot** (stateless — no volume).
 - `Administrator / P@ssw0rd123`
 - `analyst / Summer2024!` (normal user)
 - `backup_svc / Backup2024!` with SPN `HTTP/web.forge.local`
-  (kerberoastable — works with the kerberoast module)
+  (kerberoastable — works with the kerberoast module), UAC
+  TRUSTED_FOR_DELEGATION (unconstrained delegation), and an RBCD rule
+  (`msDS-AllowedToActOnBehalfOfOtherIdentity`) letting `web_svc`
+  impersonate against it
+- `web_svc / Web2024!` with SPN `HTTP/intranet.forge.local` (also
+  kerberoastable), constrained delegation to `HTTP/api.forge.local` with
+  protocol transition (TRUSTED_TO_AUTH_FOR_DELEGATION)
 - `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but see the
   caveat below: this KDC build ignores the flag, so it answers
   PREAUTH_REQUIRED like everyone else)
@@ -33,8 +39,11 @@ fresh on every boot** (stateless — no volume).
    Stateless = a clean domain every time (provisioning takes ~60s).
 
 **Ports (1:1 on loopback — impacket ignores URL ports and speaks AD
-ports only):** 389 → `127.0.0.1:389` (LDAP), 88 → `127.0.0.1:88`
-(Kerberos), 445 → `127.0.0.1:445` (SMB).
+ports only):** 135 → `127.0.0.1:135` (RPC endpoint mapper), 389 →
+`127.0.0.1:389` (LDAP), 88 → `127.0.0.1:88` (Kerberos), 445 →
+`127.0.0.1:445` (SMB), plus 49152-49160 (dynamic RPC, pinned via
+`rpc server dynamic port range` in `entrypoint.sh` — DRSUAPI/DCSync
+resolves its endpoint through 135 and then lands in this range).
 
 **Known noise:** `samba_dnsupdate` logs a DNS timeout on boot — cosmetic
 (the DC's internal DNS registering its own A record races itself in a

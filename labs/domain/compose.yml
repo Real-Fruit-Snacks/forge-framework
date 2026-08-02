@@ -22,10 +22,12 @@ services:
       domain:
         ipv4_address: 10.10.10.10
     ports:
+      - "127.0.0.1:135:135"     # RPC endpoint mapper (DRSUAPI/DCSync)
       - "127.0.0.1:389:389"
       - "127.0.0.1:88:88"
       - "127.0.0.1:88:88/udp"   # Kerberos is UDP-first
       - "127.0.0.1:445:445"
+      - "127.0.0.1:49152-49160:49152-49160"  # pinned dynamic RPC range
 
   member:
     image: dockurr/windows

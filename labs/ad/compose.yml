@@ -8,7 +8,11 @@ services:
     ports:
       # impacket speaks AD ports only (389/88/445), so bind them 1:1 on
       # loopback — docker (root) can take the low ports.
+      - "127.0.0.1:135:135"     # RPC endpoint mapper (DRSUAPI/DCSync)
       - "127.0.0.1:389:389"
       - "127.0.0.1:88:88"
       - "127.0.0.1:88:88/udp"   # Kerberos is UDP-first
       - "127.0.0.1:445:445"
+      # pinned dynamic RPC range (see entrypoint.sh) — core.lab's port
+      # parser reads single ports only; this line is for docker, not it
+      - "127.0.0.1:49152-49160:49152-49160"
