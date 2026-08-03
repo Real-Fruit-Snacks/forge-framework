@@ -813,6 +813,69 @@ class TestWindowsLab(unittest.TestCase):
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestAdProbeWindowsLab(unittest.TestCase):
+    """ad_probe against the windows lab (Server 2022): the hardened-EPM
+    path — direct interface binds with creds find PrinterBug."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab guest SMB not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def test_profile_hardened_windows(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/scanner/ad_probe",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set RPC_PORT 10135",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("Windows Server 2022 Build 20348", out)
+            self.assertIn("SMB signing NOT required", out)
+            # the hardened-EPM fallback: direct binds, PrinterBug present
+            self.assertIn("rpc RPRN (PrinterBug)", out)
+            self.assertIn("rpc SCMR", out)
+            self.assertIn("rpc TSCH", out)
+            # this guest runs no EFS service — PetitPotam is absent
+            self.assertNotIn("EFSR", out)
+            loot = console.store.loot("ad-probe")
+            self.assertEqual(len(loot), 1)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestSmbExecWindowsLab(unittest.TestCase):
     """smb_exec against the windows lab: SYSTEM command execution through
     a transient SCMR service, output read back over ADMIN$."""
@@ -2346,6 +2409,51 @@ class TestPassTheTicketLab(unittest.TestCase):
         )
         self.assertNotIn("Traceback", out)
         self.assertIn("not valid base64", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdProbeAdLab(unittest.TestCase):
+    """ad_probe against the AD lab (Samba): signing posture, names, LDAP
+    rootDSE, realm confirmation, RPC interfaces, loot."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_profile_samba_dc(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/scanner/ad_probe",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("SMB signing required", out)
+            self.assertIn("dns=forge.local", out)
+            self.assertIn("DC=forge,DC=local", out)
+            self.assertIn("clock skew +", out)
+            self.assertIn("KDC realm forge.local", out)
+            self.assertIn("rpc SAMR", out)
+            self.assertIn("anonymous bind works", out)
+            loot = console.store.loot("ad-probe")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("profile @", loot[0]["label"])
+        finally:
+            console.store.close()
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

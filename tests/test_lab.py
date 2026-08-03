@@ -35,7 +35,8 @@ class TestDiscovery(unittest.TestCase):
         # windows: trailing comments on port lines are tolerated
         self.assertEqual(
             labs["windows"].targets,
-            [(1445, 445), (13389, 3389), (15985, 5985), (8006, 8006)],
+            [(1445, 445), (10135, 135), (13389, 3389), (15985, 5985),
+             (8006, 8006)],
         )
         self.assertEqual(
             labs["workstation"].targets,

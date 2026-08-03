@@ -208,4 +208,15 @@ never run both.
   impacket's `Credential.toTGT()` rebuilds a synthetic AS-REP from a
   ccache entry, so one vendored TGS-REQ shape serves real and
   ccache-sourced TGTs alike; ccache Principal components are
-  CountedOctetStrings — read their `['data']`, don't decode them.
+  CountedOctetStrings — read their `['data']`, don't decode them.- **The endpoint mapper is not one thing** (ad_probe's three tiers):
+  classic Windows answers `ept_lookup` with the full dump; Samba's
+  epmapper implements `ept_map` only (lookup returns
+  `ept_s_not_registered`, and binds get flaky when hammered); hardened
+  Server 2022 rejects impacket's EPM bind outright
+  (`reason_not_specified`, auth and transport irrelevant) — the honest
+  fallback is binding each interface's UUID on its canonical pipe
+  (`\spoolss`, `\svcctl`, ...), where pipe-missing means absent and
+  ACCESS_DENIED means present-but-gated. Two impacket shape traps:
+  `SMBTransport(filename=)` wants `\svcctl`, NOT `\pipe\svcctl` (it
+  prepends), and a faulted EPM lookup poisons the association — retry
+  maps on a fresh dce.
