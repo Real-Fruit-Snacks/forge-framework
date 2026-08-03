@@ -8,6 +8,8 @@ RUN apt-get update \
     && mkdir -p /shares/public /shares/labuser \
     && echo 'flag{smb_labs_are_fun}' > /shares/public/flag.txt \
     && echo 'private notes for labuser' > /shares/labuser/notes.txt \
+    && echo '<configuration><appSettings><add key="cs" value="x"/></appSettings></configuration>' > /shares/public/web.config \
+    && echo 'root:toor # planted spider fixture' > /shares/public/credentials.txt \
     && useradd -M labuser && echo 'labuser:labpass' | chpasswd \
     && (echo 'labpass'; echo 'labpass') | smbpasswd -a -s labuser
 

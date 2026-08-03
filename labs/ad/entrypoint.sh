@@ -186,9 +186,18 @@ cat > "$GPP_DIR/Groups.xml" <<'XML'
 XML
 # real sysvol GPP files are readable by every authenticated user
 chmod -R a+rX "$GPP_DIR"
+# BitLocker fixture: a recovery key under WS01 — what AD backup of
+# BitLocker looks like in every org that turned it on
+printf 'dn: CN=2024-01-01T00-00-00-08-00FVE-KEY,CN=WS01,CN=Computers,DC=forge,DC=local\nchangetype: add\nobjectClass: msFVE-RecoveryInformation\nmsFVE-RecoveryPassword: 123456-234567-345678-456789-567890-678901-789012-890123\nmsFVE-RecoveryGuid: {AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}\n' \
+    > /tmp/fve.ldif
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/fve.ldif
+rm /tmp/fve.ldif
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf
+# when the DC is a lab's DNS server (domain lab), it must also resolve
+# the outside world — members download things through it
+sed -i '/^\[global\]/a \   dns forwarder = 8.8.8.8' /etc/samba/smb.conf
 printf '[shared]\n   path = /srv/shared\n   read only = yes\n   guest ok = yes\n' \
     >> /etc/samba/smb.conf
 mkdir -p /srv/shared

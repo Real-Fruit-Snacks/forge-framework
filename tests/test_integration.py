@@ -393,6 +393,57 @@ class TestSmbEnumLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestSpiderLab(unittest.TestCase):
+    """share_spider against the smb lab's planted interesting files."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("smb")
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=10445, timeout=2).close()
+                break
+            except Exception:
+                time.sleep(0.5)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("smb")
+
+    def test_flags_planted_files(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/share_spider",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 10445",
+                    "set USERNAME labuser",
+                    "set PASSWORD labpass",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("web.config", out)
+            self.assertIn("credentials.txt", out)
+            self.assertNotIn("flag.txt", out)  # not an interesting pattern
+            loot = console.store.loot("spider")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("web.config", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestAdEnumLab(unittest.TestCase):
     """ad_enum against the Samba AD DC lab (provisions on first boot)."""
 
@@ -1403,6 +1454,60 @@ class TestGppPasswordLab(unittest.TestCase):
             self.assertEqual(creds[0]["username"], "svc_localadmin")
             self.assertEqual(creds[0]["password"], "GPP2024!Secret")
             self.assertEqual(len(console.store.loot("gpp-password")), 1)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestBitlockerLab(unittest.TestCase):
+    """bitlocker_keys against the AD lab's WS01 recovery-key fixture."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_finds_recovery_key(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/bitlocker_keys",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("WS01", out)
+            self.assertIn("123456-234567", out)
+            loot = console.store.loot("bitlocker-keys")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("WS01", loot[0]["content"])
         finally:
             console.store.close()
 
