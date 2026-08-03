@@ -160,3 +160,13 @@ never run both.
   network does nothing; registering it needs a proper SYSTEM principal —
   bare `-User SYSTEM` fails silently). Pinning the DC's container MAC
   reduces how often it triggers.
+- **Golden-ticket forging has four Samba-specific traps** (all verified
+  against the lab): modern Samba holds NO rc4 krbtgt key (forge AES256
+  from dcsync's kerberos-key loot, not the NT hash); the ticket's kvno
+  must match krbtgt's (Samba provisions it at 1, Windows usually 2+);
+  PAC ClientId and ticket authtime must agree to the second
+  ("PAC timestamp mismatch"); PAC_REQUESTOR takes the raw Structure SID,
+  not the NDR RPC_SID (NDR-encoded input decodes as S-5-0 garbage →
+  "SID mismatch between PAC and looked up client"); and Samba's NDR
+  puller wants LOGON_INFO's declared ObjectBufferLength 8-padded while
+  Windows doesn't care.

