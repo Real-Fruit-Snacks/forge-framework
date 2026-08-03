@@ -16,3 +16,10 @@ services:
       # pinned dynamic RPC range (see entrypoint.sh) — core.lab's port
       # parser reads single ports only; this line is for docker, not it
       - "127.0.0.1:49152-49160:49152-49160"
+    volumes:
+      # provisioned domain state — second boots skip the ~60s provision
+      # (fixture/entrypoint edits need `lab purge ad` to take effect)
+      - ad-state:/var/lib/samba
+
+volumes:
+  ad-state:

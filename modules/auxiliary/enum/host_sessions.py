@@ -87,7 +87,7 @@ class HostSessions(AuxiliaryModule):
             self.print_error(f"{host}: session enum failed "
                              "(needs local admin?) - " + str(e).split("\n")[0])
             return
-        sessions = resp['InfoStruct']['SessionInfo10']['Buffer']
+        sessions = resp['InfoStruct']['SessionInfo']['Level10']['Buffer']
         if not sessions:
             self.print_status(f"{host}: no active SMB sessions")
             return
@@ -105,7 +105,7 @@ class HostSessions(AuxiliaryModule):
             self.print_error(f"{host}: logon enum failed "
                              "(needs local admin?) - " + str(e).split("\n")[0])
             return
-        users = resp['UserInfo']['WkstaUserInfoLevel1']['Buffer']
+        users = resp['UserInfo']['WkstaUserInfo']['Level1']['Buffer']
         if not users:
             self.print_status(f"{host}: no console logons")
             return

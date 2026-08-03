@@ -1,0 +1,8 @@
+dn: CN=sql_svc,CN=Managed Service Accounts,DC=forge,DC=local
+changetype: add
+objectClass: msDS-GroupManagedServiceAccount
+sAMAccountName: sql_svc$
+userAccountControl: 4096
+msDS-ManagedPasswordInterval: 30
+servicePrincipalName: HTTP/sql.forge.local
+msDS-GroupMSAMembership: O:SYG:SYD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)

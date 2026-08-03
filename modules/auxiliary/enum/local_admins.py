@@ -76,9 +76,9 @@ class LocalAdmins(AuxiliaryModule):
             dce = dce_rpc(conn, "\\pipe\\samr", samr.MSRPC_UUID_SAMR)
             server_handle = samr.hSamrConnect(dce)['ServerHandle']
             builtin = samr.hSamrLookupDomainInSamServer(
-                dce, serverHandle, "Builtin")['DomainId']
+                dce, server_handle, "Builtin")['DomainId']
             domain_handle = samr.hSamrOpenDomain(
-                dce, serverHandle, domainId=builtin)['DomainHandle']
+                dce, server_handle, domainId=builtin)['DomainHandle']
             alias_handle = samr.hSamrOpenAlias(
                 dce, domain_handle, aliasId=ADMINISTRATORS_RID)['AliasHandle']
             members = samr.hSamrGetMembersInAlias(dce, alias_handle)

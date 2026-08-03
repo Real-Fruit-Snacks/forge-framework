@@ -1,0 +1,5 @@
+dn: CN=2024-01-01T00-00-00-08-00FVE-KEY,CN=WS01,CN=Computers,DC=forge,DC=local
+changetype: add
+objectClass: msFVE-RecoveryInformation
+msFVE-RecoveryPassword: 123456-234567-345678-456789-567890-678901-789012-890123
+msFVE-RecoveryGuid: {AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}

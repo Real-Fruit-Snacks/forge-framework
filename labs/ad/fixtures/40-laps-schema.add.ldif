@@ -1,0 +1,23 @@
+dn: CN=ms-Mcs-AdmPwd,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: attributeSchema
+lDAPDisplayName: ms-Mcs-AdmPwd
+adminDisplayName: ms-Mcs-AdmPwd
+attributeID: 1.2.840.113556.1.8000.2554.50051
+attributeSyntax: 2.5.5.5
+oMSyntax: 19
+isSingleValued: TRUE
+searchFlags: 904
+showInAdvancedViewOnly: TRUE
+
+dn: CN=ms-Mcs-AdmPwdExpirationTime,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: attributeSchema
+lDAPDisplayName: ms-Mcs-AdmPwdExpirationTime
+adminDisplayName: ms-Mcs-AdmPwdExpirationTime
+attributeID: 1.2.840.113556.1.8000.2554.50052
+attributeSyntax: 2.5.5.16
+oMSyntax: 65
+isSingleValued: TRUE
+searchFlags: 0
+showInAdvancedViewOnly: TRUE

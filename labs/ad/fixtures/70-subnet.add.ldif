@@ -1,0 +1,4 @@
+dn: CN=10.10.10.0/24,CN=Subnets,CN=Sites,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: subnet
+siteObject: CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=forge,DC=local

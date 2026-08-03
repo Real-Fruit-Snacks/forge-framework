@@ -1,0 +1,7 @@
+dn: CN=WS01,CN=Computers,DC=forge,DC=local
+changetype: add
+objectClass: computer
+sAMAccountName: WS01$
+userAccountControl: 4096
+dNSHostName: ws01.forge.local
+ms-Mcs-AdmPwd: W0rkstation!2024

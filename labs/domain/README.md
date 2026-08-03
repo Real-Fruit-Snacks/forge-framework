@@ -40,9 +40,25 @@ things Samba can emulate):
 **Gotchas:**
 
 - **Port conflict:** the DC binds 389/88/445 on loopback just like the
-  `ad` lab — never run both at once (`lab down ad` first).
+  `ad` lab — never run both at once (`lab down ad` first; `lab up`
+  preflights this and tells you).
+- **Windows firewall vs. rebuilds (the hard lesson):** when the guest
+  sees a new network it mints a Public profile and silently stops
+  answering SMB/RDP inbound. `oem/join.ps1` therefore pins the Private
+  profile and opens the firewall TWICE: at specialize time, and via a
+  boot scheduled task (`ForgeLabNetFix`, registered with a proper SYSTEM
+  principal — a bare `-User SYSTEM` registration fails silently) that
+  waits for a profile to exist before pinning it. The DC's MAC is also
+  pinned in compose.yml to minimize churn. Throwaway lab rules — don't
+  ship this anywhere real.
+- **Domain state persists** on the `dc-state` volume: the domain SID is
+  stable across restarts, so the member's trust relationship survives.
+  `lab purge domain` wipes both volumes (member reinstalls, domain
+  re-provisions).
 - **DNS:** the member's guest DNS forwards to the DC via the container's
-  `dns: 10.10.10.10`. If `nslookup forge.local` fails inside the guest,
-  set the adapter's DNS to `10.10.10.10` by hand.
+  `dns: 10.10.10.10`, and the DC forwards external lookups
+  (`dns forwarder = 8.8.8.8` in the ad lab's entrypoint) — the member
+  downloads its ISO through the DC, so without the forwarder the
+  install dies at "unable to resolve host".
 - **Resources:** DC ~0.5G + member 4G RAM. KVM required (`/dev/kvm`).
 - Windows eval licensing per Microsoft's evaluation terms.

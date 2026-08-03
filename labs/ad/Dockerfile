@@ -11,6 +11,7 @@ RUN apt-get update \
 # allowed at runtime with CAP_SYS_ADMIN (see compose.yml). Labs are
 # throwaway, so no volume: a clean domain every boot.
 COPY entrypoint.sh /entrypoint.sh
+COPY fixtures/ /fixtures/
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 53 88 135 139 389 445 464 636 3268 3269

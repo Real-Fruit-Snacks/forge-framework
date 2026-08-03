@@ -1,0 +1,12 @@
+dn: CN=Computer,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: modify
+add: mayContain
+mayContain: ms-Mcs-AdmPwd
+-
+add: mayContain
+mayContain: ms-Mcs-AdmPwdExpirationTime
+
+dn:
+changetype: modify
+add: schemaUpdateNow
+schemaUpdateNow: 1

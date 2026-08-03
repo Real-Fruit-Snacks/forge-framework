@@ -1,0 +1,15 @@
+dn: CN=backup_svc,CN=Users,DC=forge,DC=local
+changetype: modify
+replace: userAccountControl
+userAccountControl: 524800
+-
+add: msDS-AllowedToActOnBehalfOfOtherIdentity
+msDS-AllowedToActOnBehalfOfOtherIdentity: O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;__WEB_SID__)
+
+dn: CN=web_svc,CN=Users,DC=forge,DC=local
+changetype: modify
+add: msDS-AllowedToDelegateTo
+msDS-AllowedToDelegateTo: HTTP/api.forge.local
+-
+replace: userAccountControl
+userAccountControl: 16777728

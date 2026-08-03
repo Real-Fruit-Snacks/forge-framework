@@ -5,6 +5,23 @@
 
 $joined = $false
 
+# Lab networking: the firewall must stay open on EVERY boot, including
+# when NLA mints a new Public profile. Set it now, and via a boot task
+# that WAITS for a network profile to exist before pinning it Private
+# (a startup task that runs before the network does nothing — learned
+# the hard way). SYSTEM tasks need a proper principal to register.
+Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+Set-NetFirewallProfile -All -Enabled False
+$fixAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+    '-NoProfile -Command "while (-not (Get-NetConnectionProfile ' +
+    '-ErrorAction SilentlyContinue)) { Start-Sleep -Seconds 5 }; ' +
+    'Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private; ' +
+    'Set-NetFirewallProfile -All -Enabled False"')
+$fixPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' `
+    -LogonType ServiceAccount -RunLevel Highest
+Register-ScheduledTask -TaskName 'ForgeLabNetFix' -Action $fixAction `
+    -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal $fixPrincipal -Force
+
 # Samba-AD compatibility: relax Netlogon secure-channel requirements
 # (Samba 4.17 doesn't implement every AES/sealing combination the modern
 # Windows client insists on by default).

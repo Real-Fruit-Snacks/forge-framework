@@ -69,6 +69,33 @@ class TestComposeInvocation(unittest.TestCase):
         self.assertIn("--build", cmd)
         self.assertTrue(any("compose.yml" in part for part in cmd))
 
+    def test_up_preflight_blocks_busy_ports(self):
+        import socket as _socket
+
+        listener = _socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        busy_port = listener.getsockname()[1]
+        try:
+            lab = Lab("conflict", Path("t"), Path("t/compose.yml"),
+                      [(busy_port, 80)])
+            with mock.patch.object(LabManager, "labs", return_value={"conflict": lab}), \
+                    mock.patch.object(LabManager, "is_running", return_value=False):
+                with self.assertRaises(LabError) as ctx:
+                    self.mgr.up("conflict")
+            self.assertIn("in use", str(ctx.exception))
+        finally:
+            listener.close()
+
+    def test_up_preflight_skips_running_lab(self):
+        fake = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch("core.lab.subprocess.run", return_value=fake), \
+                mock.patch.object(LabManager, "is_running", return_value=True), \
+                mock.patch.object(LabManager, "_check_ports_free") as check, \
+                mock.patch.object(LabManager, "_wait_ready"):
+            self.mgr.up("web")
+        check.assert_not_called()
+
     def test_wait_ready_happy_path_and_timeout(self):
         import socket as _socket
 

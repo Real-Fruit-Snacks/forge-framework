@@ -1,0 +1,15 @@
+dn: CN=WeakServicePSO,CN=Password Settings Container,CN=System,DC=forge,DC=local
+changetype: add
+objectClass: msDS-PasswordSettings
+name: WeakServicePSO
+msDS-PasswordSettingsPrecedence: 10
+msDS-PasswordComplexityEnabled: TRUE
+msDS-MinimumPasswordLength: 4
+msDS-PasswordHistoryLength: 0
+msDS-MinimumPasswordAge: 0
+msDS-MaximumPasswordAge: -36288000000000
+msDS-LockoutThreshold: 0
+msDS-LockoutObservationWindow: -18000000000
+msDS-LockoutDuration: -18000000000
+msDS-PasswordReversibleEncryptionEnabled: FALSE
+msDS-PSOAppliesTo: CN=Helpdesk,CN=Users,DC=forge,DC=local

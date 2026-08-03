@@ -18,6 +18,10 @@ services:
     # CAP_SYS_ADMIN: samba provision + NT ACLs (see labs/ad/compose.yml).
     cap_add:
       - SYS_ADMIN
+    # pinned MAC: container rebuilds otherwise change it, Windows NLA on
+    # the member mints a fresh Public network profile, and the firewall
+    # silently stops answering SMB/RDP — learned the hard way
+    mac_address: "02:42:0a:0a:0a:0a"
     networks:
       domain:
         ipv4_address: 10.10.10.10
@@ -28,6 +32,10 @@ services:
       - "127.0.0.1:88:88/udp"   # Kerberos is UDP-first
       - "127.0.0.1:445:445"
       - "127.0.0.1:49152-49160:49152-49160"  # pinned dynamic RPC range
+    volumes:
+      # provisioned domain state persists — second boots are fast AND the
+      # domain SID survives, so the member's trust relationship does too
+      - dc-state:/var/lib/samba
 
   member:
     image: dockurr/windows
@@ -63,3 +71,4 @@ services:
 
 volumes:
   member-data:
+  dc-state:

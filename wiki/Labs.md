@@ -153,3 +153,10 @@ never run both.
 - **PSOs are admin-only on Samba** — Windows lets any authenticated
   user read Password Settings Objects; Samba's CN=System ACLs don't.
   Fine-grained policy checks need a privileged account against the lab.
+- **Windows guests mint a Public NLA profile on network change** — and
+  the firewall silently stops answering SMB/RDP inbound. Fix at TWO
+  points: specialize-time in the oem script AND a boot scheduled task
+  that waits for a profile to exist (a task that fires before the
+  network does nothing; registering it needs a proper SYSTEM principal —
+  bare `-User SYSTEM` fails silently). Pinning the DC's container MAC
+  reduces how often it triggers.

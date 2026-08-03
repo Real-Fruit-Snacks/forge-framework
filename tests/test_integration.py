@@ -442,6 +442,25 @@ class TestSpiderLab(unittest.TestCase):
             console.store.close()
 
 
+def up_ad_lab(manager, timeout=120):
+    """Bring up the ad lab and wait for a REAL LDAP bind — docker-proxy
+    accepts TCP connections the moment the container starts, long before
+    provisioning finishes, so a bare connect check lies."""
+    from impacket.ldap import ldap as impacket_ldap
+
+    manager.up("ad")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+            conn.login("Administrator", "P@ssw0rd123", "forge.local")
+            return
+        except Exception:
+            time.sleep(2)
+    manager.down("ad")
+    raise RuntimeError("AD lab did not provision within %ss" % timeout)
+
+
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestAdEnumLab(unittest.TestCase):
@@ -449,22 +468,8 @@ class TestAdEnumLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        # first boot provisions the domain (~30-60s) — poll a real bind
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -572,21 +577,8 @@ class TestRoastLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -647,21 +639,8 @@ class TestDelegationLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -726,21 +705,8 @@ class TestLdapQueryLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -811,21 +777,8 @@ class TestAdGroupsLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -885,21 +838,8 @@ class TestAdDescriptionsLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -955,21 +895,8 @@ class TestAdPrivilegedLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1012,21 +939,8 @@ class TestGmsaLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1067,21 +981,8 @@ class TestLapsLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1124,21 +1025,8 @@ class TestAdPoliciesLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1183,21 +1071,8 @@ class TestAdMisconfigLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1240,21 +1115,8 @@ class TestAdInfraLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1297,21 +1159,8 @@ class TestLdapSecurityLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1351,21 +1200,8 @@ class TestAdcsLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1410,21 +1246,8 @@ class TestGppPasswordLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1465,21 +1288,8 @@ class TestBitlockerLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1520,23 +1330,8 @@ class TestDcSyncLab(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from impacket.ldap import ldap as impacket_ldap
-
         cls.manager = LabManager(ROOT / "labs")
-        cls.manager.up("ad")
-        # docker-proxy accepts on 445 the moment the container starts, long
-        # before provisioning finishes — wait for a real LDAP bind instead
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            try:
-                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
-                conn.login("Administrator", "P@ssw0rd123", "forge.local")
-                break
-            except Exception:
-                time.sleep(2)
-        else:
-            cls.manager.down("ad")
-            raise RuntimeError("AD lab did not provision within 120s")
+        up_ad_lab(cls.manager)
 
     @classmethod
     def tearDownClass(cls):
@@ -1707,6 +1502,112 @@ class TestDomainFullLab(unittest.TestCase):
             conn.login("labadmin", "Labpass2024!")
         finally:
             conn.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestHostPackLab(unittest.TestCase):
+    """Host pack (host_info, host_sessions, local_admins, webdav_check)
+    against the domain lab's Windows member."""
+
+    MEMBER_PORT = 3445
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")  # READY waits on the DC (300s cap)
+        deadline = time.time() + 2400
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=cls.MEMBER_PORT,
+                              timeout=5).close()
+                break
+            except Exception:
+                time.sleep(10)
+        else:
+            cls.manager.down("domain")
+            raise RuntimeError("domain member SMB not up within 2400s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue()
+        finally:
+            console.store.close()
+
+    def test_host_info(self):
+        out = self._run(
+            "use auxiliary/enum/host_info",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {self.MEMBER_PORT}",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("Windows 10.0.", out)
+        self.assertIn("disks:", out)
+
+    def test_host_sessions(self):
+        out = self._run(
+            "use auxiliary/enum/host_sessions",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {self.MEMBER_PORT}",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("console logon", out)
+
+    def test_local_admins(self):
+        out = self._run(
+            "use auxiliary/enum/local_admins",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {self.MEMBER_PORT}",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("member(s) of local Administrators", out)
+
+    def test_webdav_check(self):
+        out = self._run(
+            "use auxiliary/enum/webdav_check",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {self.MEMBER_PORT}",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("WebClient", out)
+
+    def test_av_check(self):
+        out = self._run(
+            "use auxiliary/enum/av_check",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {self.MEMBER_PORT}",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("Microsoft Defender: RUNNING", out)
 
 
 if __name__ == "__main__":

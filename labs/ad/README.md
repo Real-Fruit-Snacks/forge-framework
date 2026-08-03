@@ -4,31 +4,35 @@
 AD enumeration and attack modules.
 
 **Build:** `debian:bookworm-slim` + `samba-ad-dc` + `samba-ad-provision`
-+ `krb5-kdc`. Domain is provisioned by `entrypoint.sh` **at runtime,
-fresh on every boot** (stateless — no volume).
++ `krb5-kdc`. Domain is provisioned by `entrypoint.sh` **on first boot**
+(provision needs `security.NTACL` xattrs, blocked at build time on
+overlayfs). State lives on the `ad-state` volume: second boots skip the
+~60s provision and keep the same domain SID. **Fixture or entrypoint
+edits only take effect after `lab purge ad`** — the volume keeps the
+old state otherwise.
 
-**Fixtures (deterministic):**
+**Fixtures (deterministic):** accounts are created by `entrypoint.sh`;
+everything else is a reviewable LDIF under `fixtures/` (see the header
+comment there for what each fixture feeds). Highlights:
 
-- `Administrator / P@ssw0rd123`
-- `analyst / Summer2024!` (normal user)
-- `backup_svc / Backup2024!` with SPN `HTTP/web.forge.local`
-  (kerberoastable — works with the kerberoast module), UAC
-  TRUSTED_FOR_DELEGATION (unconstrained delegation), and an RBCD rule
-  (`msDS-AllowedToActOnBehalfOfOtherIdentity`) letting `web_svc`
-  impersonate against it
-- `web_svc / Web2024!` with SPN `HTTP/intranet.forge.local` (also
-  kerberoastable), constrained delegation to `HTTP/api.forge.local` with
-  protocol transition (TRUSTED_TO_AUTH_FOR_DELEGATION)
+- `Administrator / P@ssw0rd123`, `analyst / Summer2024!` (in Helpdesk)
+- `backup_svc / Backup2024!` — kerberoastable, unconstrained delegation,
+  RBCD target for web_svc, password-in-description
+- `web_svc / Web2024!` — kerberoastable, constrained delegation with
+  protocol transition
 - `sql_svc$` — a gMSA (retrievable by Builtin Administrators). This
   Samba build has no KDS root key, so `msDS-ManagedPassword` is never
   constructed: gmsa_dump can enumerate it but not dump it (Windows DCs
   can — the module says so plainly)
-- `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but see the
-  caveat below: this KDC build ignores the flag, so it answers
-  PREAUTH_REQUIRED like everyone else)
+- `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but this KDC
+  build ignores the flag, so it answers PREAUTH_REQUIRED like everyone
+  else — plus PASSWD_NOTREQD)
+- `WS01` — LAPS cleartext password + a BitLocker recovery key
+- `WeakServicePSO` on Helpdesk, site subnet 10.10.10.0/24, ESC1-shaped
+  template `VulnWeb`, a GPP cpassword in SYSVOL
 - `[shared]` guest-readable share with a flag file
 
-**The four hard lessons baked into this build** (all in
+**The hard lessons baked into this build** (all in
 [../../wiki/Labs.md](../../wiki/Labs.md)'s gotcha collection):
 
 1. **`samba-ad-provision` is a separate package** — schema files for
@@ -38,9 +42,11 @@ fresh on every boot** (stateless — no volume).
 3. **The container needs `cap_add: SYS_ADMIN`** — without it provision
    dies with `NT_STATUS_ACCESS_DENIED` (looks like a filesystem problem,
    is actually a capability problem).
-4. **No persistence volume** — smb.conf lives in the container layer,
-   sam.ldb would live on a volume; split state breaks the second boot.
-   Stateless = a clean domain every time (provisioning takes ~60s).
+4. **State lives on a volume, smb.conf included** — an earlier design
+   split them (smb.conf in the image, sam.ldb on a volume) and second
+   boots broke. Now the finished smb.conf is copied onto the volume and
+   `/etc/samba/smb.conf` symlinks to it, so fast-path boots are
+   consistent.
 
 **Ports (1:1 on loopback — impacket ignores URL ports and speaks AD
 ports only):** 135 → `127.0.0.1:135` (RPC endpoint mapper), 389 →

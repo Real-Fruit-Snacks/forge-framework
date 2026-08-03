@@ -131,10 +131,36 @@ class LabManager:
     # ---------------------------------------------------------------- lifecycle
     def up(self, name: str, ready_timeout: int = 30) -> Lab:
         lab = self.get(name)
+        # only preflight when the lab isn't already running its own
+        # ports — re-upping a live lab is a legitimate no-op
+        if not self.is_running(name):
+            self._check_ports_free(lab)
         self._compose_run(name, "up", "-d", "--build")
         checks, timeout = self._ready_checks(lab)
         self._wait_ready(lab, timeout or ready_timeout, checks)
         return lab
+
+    @staticmethod
+    def _check_ports_free(lab: Lab) -> None:
+        """Fail fast when a host port the lab wants is already bound —
+        the classic case is `ad` and `domain` both claiming 389/88/445,
+        which otherwise dies mid-boot on docker's 'port is already
+        allocated' with half the project running."""
+        busy = []
+        for host_port, _ in lab.targets:
+            try:
+                with socket.create_connection(("127.0.0.1", host_port),
+                                              timeout=0.5):
+                    busy.append(host_port)
+            except OSError:
+                continue
+        if busy:
+            ports = ", ".join(str(p) for p in busy)
+            raise LabError(
+                f"lab '{lab.name}' needs port(s) {ports} on 127.0.0.1 but "
+                "they are in use — another lab running? (lab status / "
+                "lab down <name> / lab clean)"
+            )
 
     def _wait_ready(self, lab: Lab, timeout: int, checks) -> None:
         """Block until the lab's readiness checks all pass."""
