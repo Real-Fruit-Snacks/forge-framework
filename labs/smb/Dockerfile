@@ -11,7 +11,8 @@ RUN apt-get update \
     && echo '<configuration><appSettings><add key="cs" value="x"/></appSettings></configuration>' > /shares/public/web.config \
     && echo 'root:toor # planted spider fixture' > /shares/public/credentials.txt \
     && useradd -M labuser && echo 'labuser:labpass' | chpasswd \
-    && (echo 'labpass'; echo 'labpass') | smbpasswd -a -s labuser
+    && (echo 'labpass'; echo 'labpass') | smbpasswd -a -s labuser \
+    && chown labuser:labuser /shares/labuser
 
 COPY smb.conf /etc/samba/smb.conf
 

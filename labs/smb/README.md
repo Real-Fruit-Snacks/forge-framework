@@ -8,7 +8,9 @@ auth).
 **How it's built:**
 
 1. Install samba; create `/shares/public` (guest-readable, contains
-   `flag.txt`) and `/shares/labuser` (authenticated).
+   `flag.txt`) and `/shares/labuser` (authenticated, **writable** — the
+   dir is chowned to labuser; SMB `read only = no` alone isn't enough
+   when the OS dir is root-owned, as the first hash_bait run proved).
 2. `labuser` created with both a Linux password AND an smbpasswd
    (`labuser:labpass`) — SMB auth needs both.
 3. `smb.conf` (in this dir): `security = user`, `map to guest = Bad User`,

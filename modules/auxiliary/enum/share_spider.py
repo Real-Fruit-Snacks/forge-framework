@@ -9,12 +9,17 @@ filenames matching the interesting-file patterns.
 
 Listing only, no downloads — the point is a triage list, not exfil.
 Matches are collated into the store (loot).
+
+WRITE_CHECK (on by default) also probes each share's write access with a
+create+delete of a scratch file — writable shares are drop targets for
+hash_bait's coercion files, and "READ/WRITE" is a first-class finding.
 """
 
+import io
 import re
 
 from core.module import AuxiliaryModule
-from core.options import OptAddress, OptInt, OptPort, OptString
+from core.options import OptAddress, OptBool, OptInt, OptPort, OptString
 
 try:
     from impacket.dcerpc.v5 import srvs, transport
@@ -75,6 +80,9 @@ class ShareSpider(AuxiliaryModule):
                                                "(blank = enumerate)"))
         self.options.add(OptInt("MAXDEPTH", default=3,
                                 description="Directory recursion depth"))
+        self.options.add(OptBool("WRITE_CHECK", default=True,
+                                 description="Probe write access per share "
+                                             "(create+delete of a scratch file)"))
 
     def run(self):
         user = str(self.get_option("USERNAME") or "")
@@ -84,11 +92,14 @@ class ShareSpider(AuxiliaryModule):
                   if s.strip()]
         port = int(self.get_option("RPORT"))
         depth = int(self.get_option("MAXDEPTH"))
+        write_check = bool(self.get_option("WRITE_CHECK"))
         for host in [h.strip() for h in str(self.get_option("RHOSTS")).split(",")
                      if h.strip()]:
-            self._spider(host, port, domain, user, password, shares, depth)
+            self._spider(host, port, domain, user, password, shares, depth,
+                         write_check)
 
-    def _spider(self, host, port, domain, user, password, shares, depth):
+    def _spider(self, host, port, domain, user, password, shares, depth,
+                write_check):
         try:
             conn = SMBConnection(host, host, sess_port=port, timeout=30)
             conn.login(user, password, domain)
@@ -102,11 +113,26 @@ class ShareSpider(AuxiliaryModule):
         for share in shares:
             if share in SKIP_SHARES:
                 continue
+            if write_check:
+                access = self._write_check(conn, share)
+                self.print_line(f"[*] {host}: {share}: {access}")
             loot_lines.extend(self._walk(conn, host, share, "", 0, depth))
         if store is not None and loot_lines:
             store.add_loot("spider", f"interesting files @ {host}",
                            "\n".join(loot_lines), address=host)
         conn.close()
+
+    def _write_check(self, conn, share):
+        """READ/WRITE via a create+delete probe — writable shares are
+        hash_bait drop targets. Conservative: any failure means READ."""
+        probe = "@forge_wc.tmp"
+        try:
+            conn.putFile(share, probe, io.BytesIO(b"x").read)
+            conn.deleteFile(share, probe)
+            return "READ/WRITE"
+        except Exception as e:
+            self.print_debug(f"write probe {share}: {e}")
+            return "READ"
 
     def _shares(self, conn, host):
         try:
