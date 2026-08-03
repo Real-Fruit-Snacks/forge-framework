@@ -29,10 +29,10 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **19 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
-  enumeration (users, groups, delegation, raw LDAP), HTTP/SSH brute force,
-  kerberoast + AS-REP roast, DCSync, reverse-shell handler, and a payload
-  set (bash, python, PHP, PowerShell, shellcode, encoders)
+- **21 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
+  enumeration (users, groups, delegation, descriptions, raw LDAP), HTTP/SSH
+  brute force, kerberoast + AS-REP roast, DCSync, reverse-shell handler,
+  and a payload set (bash, python, PHP, PowerShell, shellcode, encoders)
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
@@ -68,7 +68,7 @@ cd forge-framework
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- personal CTF/pentest framework
-+ -- --=[ 19 modules loaded
++ -- --=[ 21 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster

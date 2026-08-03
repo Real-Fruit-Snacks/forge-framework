@@ -828,6 +828,77 @@ class TestAdGroupsLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdDescriptionsLab(unittest.TestCase):
+    """ad_descriptions against the AD lab (backup_svc fixture leaks its
+    password in the description field, as admins do)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("ad-descriptions")
+        finally:
+            console.store.close()
+
+    def test_flags_password_in_description(self):
+        out, loot = self._run(
+            "use auxiliary/enum/ad_descriptions",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("backup_svc", out)
+        self.assertIn("CHECK THIS", out)
+        self.assertEqual(len(loot), 1)
+        self.assertIn("Backup2024!", loot[0]["content"])
+
+    def test_match_narrows_results(self):
+        out, loot = self._run(
+            "use auxiliary/enum/ad_descriptions",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set MATCH nightly",
+            "run",
+        )
+        self.assertIn("backup_svc", out)
+        self.assertEqual(len(loot), 1)
+        self.assertNotIn("analyst", loot[0]["content"])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""

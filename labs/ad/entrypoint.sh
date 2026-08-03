@@ -21,7 +21,8 @@ samba-tool user create analyst 'Summer2024!' --given-name=Ana --surname=Lyst
 # enumeration has something deterministic to find
 samba-tool group create Helpdesk
 samba-tool group addmembers Helpdesk analyst
-samba-tool user create backup_svc 'Backup2024!'
+samba-tool user create backup_svc 'Backup2024!' \
+    --description='Nightly backup service (temp password: Backup2024!)'
 samba-tool user setexpiry --noexpiry backup_svc
 samba-tool spn add HTTP/web.forge.local backup_svc
 # asreproastable fixture: DONT_REQUIRE_PREAUTH (0x400000 = 4194304) on top
