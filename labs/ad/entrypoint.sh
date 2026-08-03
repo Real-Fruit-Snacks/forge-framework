@@ -139,6 +139,38 @@ printf 'dn: CN=10.10.10.0/24,CN=Subnets,CN=Sites,CN=Configuration,DC=forge,DC=lo
     > /tmp/subnet.ldif
 ldbadd -H /var/lib/samba/private/sam.ldb /tmp/subnet.ldif
 rm /tmp/subnet.ldif
+# ADCS fixture: Public Key Services exists by default (provision creates
+# it) — add the Certificate Templates container if needed, then two
+# templates: one ESC1 (enrollee supplies subject + client auth EKU),
+# one sane. Samba can't BE a CA, but templates are plain LDAP objects,
+# which is all the adcs_enum analysis needs.
+if ! ldbsearch -H /var/lib/samba/private/sam.ldb \
+        -b "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=forge,DC=local" \
+        "(objectClass=container)" dn 2>/dev/null | grep -q "^dn:"; then
+printf 'dn: CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=forge,DC=local\nchangetype: add\nobjectClass: container\n' \
+    > /tmp/adcs-ct.ldif
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/adcs-ct.ldif
+rm /tmp/adcs-ct.ldif
+fi
+cat > /tmp/adcs.ldif <<'LDIF'
+dn: CN=VulnWeb,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: pKICertificateTemplate
+cn: VulnWeb
+displayName: Vulnerable Web Cert
+msPKI-Certificate-Name-Flag: 1
+pKIExtendedKeyUsage: 1.3.6.1.5.5.7.3.2
+
+dn: CN=SafeMachine,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: pKICertificateTemplate
+cn: SafeMachine
+displayName: Machine Cert
+msPKI-Certificate-Name-Flag: 0
+pKIExtendedKeyUsage: 1.3.6.1.5.5.7.3.2
+LDIF
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/adcs.ldif
+rm /tmp/adcs.ldif
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf

@@ -1295,6 +1295,65 @@ class TestLdapSecurityLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdcsLab(unittest.TestCase):
+    """adcs_enum against the AD lab's planted template fixtures."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_flags_esc1_template(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/adcs_enum",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("VulnWeb: ESC1", out)
+            self.assertIn("client auth", out)
+            self.assertIn("1 ESC1-shaped", out)
+            # the sane template is not flagged
+            self.assertNotIn("SafeMachine: ESC1", out)
+            # no real CA in the lab — the module says so
+            self.assertIn("no enterprise CAs", out)
+            loot = console.store.loot("adcs")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("VulnWeb", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""
