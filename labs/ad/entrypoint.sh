@@ -17,6 +17,10 @@ samba-tool domain provision --realm=FORGE.LOCAL --domain=FORGE \
     --server-role=dc --dns-backend=SAMBA_INTERNAL \
     --adminpass='P@ssw0rd123' --use-rfc2307
 samba-tool user create analyst 'Summer2024!' --given-name=Ana --surname=Lyst
+# group fixture: a non-default group with a known member, so group
+# enumeration has something deterministic to find
+samba-tool group create Helpdesk
+samba-tool group addmembers Helpdesk analyst
 samba-tool user create backup_svc 'Backup2024!'
 samba-tool user setexpiry --noexpiry backup_svc
 samba-tool spn add HTTP/web.forge.local backup_svc

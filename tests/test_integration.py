@@ -755,6 +755,79 @@ class TestLdapQueryLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdGroupsLab(unittest.TestCase):
+    """ad_groups against the AD lab (Helpdesk fixture has analyst)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("ad-groups")
+        finally:
+            console.store.close()
+
+    def test_groups_and_membership(self):
+        out, loot = self._run(
+            "use auxiliary/enum/ad_groups",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("Domain Admins", out)
+        self.assertIn("Helpdesk", out)
+        # fixture membership: analyst is in Helpdesk; CN comes from the DN
+        self.assertIn("Ana Lyst", out)
+        self.assertIn("security", out)
+        self.assertEqual(len(loot), 1)
+        self.assertIn("Helpdesk", loot[0]["content"])
+        self.assertIn("Ana Lyst", loot[0]["content"])
+
+    def test_match_narrows_results(self):
+        out, _ = self._run(
+            "use auxiliary/enum/ad_groups",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set MATCH help",
+            "run",
+        )
+        self.assertIn("Helpdesk", out)
+        self.assertNotIn("Domain Admins (", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""
