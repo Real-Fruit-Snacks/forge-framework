@@ -97,6 +97,7 @@ Labs you start are torn down automatically on `exit`. See [[Labs]].
 | Command | What it does |
 |---|---|
 | `resource <file>` | Run console commands from a file (`#` comments ok; nests 3 deep) |
+| `serve <file> [port]` / `serve off` | Host a file over HTTP (staged alone behind a 404 page — no directory listing); prints linux + windows fetch lines |
 | `debug [on\|off]` | Toggle verbose `[D]` debug output (also `FORGE_DEBUG=1` or `debug = true` in config) |
 | `spool <file>` / `spool off` | Log all output (ANSI-stripped, append mode) — including session traffic |
 | `!<cmd>` | Run a local shell command (captured into output/spool) |

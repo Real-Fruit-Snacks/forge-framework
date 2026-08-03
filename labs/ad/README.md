@@ -55,7 +55,8 @@ comment there for what each fixture feeds). Highlights:
 **Ports (1:1 on loopback — impacket ignores URL ports and speaks AD
 ports only):** 135 → `127.0.0.1:135` (RPC endpoint mapper), 389 →
 `127.0.0.1:389` (LDAP), 88 → `127.0.0.1:88` (Kerberos), 445 →
-`127.0.0.1:445` (SMB), plus 49152-49160 (dynamic RPC, pinned via
+`127.0.0.1:445` (SMB), 53 → `127.0.0.1:15353` (Samba's internal DNS, for
+`dns_recon`), plus 49152-49160 (dynamic RPC, pinned via
 `rpc server dynamic port range` in `entrypoint.sh` — DRSUAPI/DCSync
 resolves its endpoint through 135 and then lands in this range).
 

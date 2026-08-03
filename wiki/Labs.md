@@ -30,7 +30,7 @@ rebuilds occasionally with `docker image prune`.
 | `web` | `127.0.0.1:18080` | dir busting, HTTP brute, scanners | basic/form: `admin:hunter2` |
 | `ssh` | `127.0.0.1:12222` | ssh_login, SSH work | `admin:admin`, `user:password`, `root:toor` |
 | `smb` | `127.0.0.1:10139` + `10445` | SMB/impacket modules | guest share `public`; `labuser:labpass` |
-| `ad` | `127.0.0.1:389` + `88` + `445` + `135` | AD enumeration + DCSync (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` + `web_svc`, delegation fixtures (unconstrained/constrained/RBCD) |
+| `ad` | `127.0.0.1:389` + `88` + `445` + `135` + `15353` (DNS) | AD enumeration + DCSync (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` + `web_svc`, delegation fixtures (unconstrained/constrained/RBCD) |
 | `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP), `15985` (WinRM) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `workstation` | `127.0.0.1:2445` (SMB), `23389` (RDP) | Windows 11 client — the foothold box | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL | DC creds as `ad`; member `labadmin:Labpass2024!` |

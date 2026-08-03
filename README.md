@@ -29,12 +29,13 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **48 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
+- **51 modules** — scanners (port, HTTP, recursive dir buster), SMB and AD
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
-  policies, misconfigs, raw LDAP), HTTP/SSH/SMB/Kerberos/LDAP/MSSQL/WinRM
-  brute force plus a store-driven multi-protocol sprayer (pass-the-hash,
-  lockout circuit-breakers), kerberoast + AS-REP roast, DCSync, golden
-  ticket, S4U delegation abuse, pass-the-ticket, psexec-class SMB exec,
+  policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
+  HTTP/SSH/SMB/Kerberos/LDAP/MSSQL/WinRM brute force plus a store-driven
+  multi-protocol sprayer (pass-the-hash, lockout circuit-breakers),
+  kerberoast + AS-REP roast, DCSync, golden ticket, S4U delegation abuse,
+  pass-the-ticket, NTLM hash-bait coercion, psexec-class SMB exec,
   reverse-shell handler, and a payload set (bash, python, PHP, PowerShell,
   shellcode, encoders)
 - **Background jobs** — thread-based with captured output and cooperative stop
@@ -47,7 +48,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **372 tests** — unit plus docker-gated integration running real modules
+- **401 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -72,7 +73,7 @@ cd forge-framework
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- personal CTF/pentest framework
-+ -- --=[ 48 modules loaded
++ -- --=[ 51 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster
