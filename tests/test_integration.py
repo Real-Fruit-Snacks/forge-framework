@@ -899,6 +899,62 @@ class TestAdDescriptionsLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAdPrivilegedLab(unittest.TestCase):
+    """ad_privileged against the AD lab (Administrator is adminCount=1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_finds_protected_accounts(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/ad_privileged",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("Administrator", out)
+            self.assertIn("Domain Admins", out)
+            # a normal user is not AdminSDHolder-protected
+            self.assertNotIn("analyst:", out)
+            loot = console.store.loot("ad-privileged")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("Administrator", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""
