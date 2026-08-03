@@ -670,6 +670,91 @@ class TestDelegationLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestLdapQueryLab(unittest.TestCase):
+    """ldap_query against the AD lab: real filters, clean failures."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("ldap-query")
+        finally:
+            console.store.close()
+
+    def test_filter_and_attrs(self):
+        out, loot = self._run(
+            "use auxiliary/enum/ldap_query",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set QUERY (sAMAccountName=backup_svc)",
+            "set ATTRS sAMAccountName,servicePrincipalName",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("sAMAccountName=backup_svc", out)
+        self.assertIn("servicePrincipalName=HTTP/web.forge.local", out)
+        self.assertIn("1 entry", out)
+        self.assertEqual(len(loot), 1)
+        self.assertIn("backup_svc", loot[0]["content"])
+
+    def test_limit_caps_results(self):
+        out, _ = self._run(
+            "use auxiliary/enum/ldap_query",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set QUERY (objectClass=user)",
+            "set LIMIT 2",
+            "run",
+        )
+        self.assertIn("2 entries", out)
+
+    def test_bad_filter_clean_error(self):
+        out, _ = self._run(
+            "use auxiliary/enum/ldap_query",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set QUERY ((objectClass=user)",
+            "run",
+        )
+        self.assertIn("Bad QUERY", out)
+        self.assertNotIn("Traceback", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""
