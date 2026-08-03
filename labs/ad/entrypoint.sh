@@ -171,6 +171,21 @@ pKIExtendedKeyUsage: 1.3.6.1.5.5.7.3.2
 LDIF
 ldbadd -H /var/lib/samba/private/sam.ldb /tmp/adcs.ldif
 rm /tmp/adcs.ldif
+# GPP fixture: a cpassword in the Default Domain Policy's Groups.xml —
+# "encrypted" with Microsoft's published key, i.e. cleartext for anyone
+# who can read SYSVOL (everyone). gpp_password's whole reason to exist.
+GPP_DIR="/var/lib/samba/sysvol/forge.local/Policies/{31B2F340-016D-11D2-945F-00C04FB984F9}/Machine/Preferences/Groups"
+mkdir -p "$GPP_DIR"
+cat > "$GPP_DIR/Groups.xml" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
+  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="svc_localadmin" image="2" changed="2024-01-01 00:00:00" uid="{A1B2C3D4-0000-1111-2222-333344445555}">
+    <Properties action="U" newName="" fullName="" description="" cpassword="ebwF2Pa9BpEFOuivsimZp0tcyXArTxCVK8PAgmdLxZQ=" changeLogon="0" noChange="1" neverExpires="1" acctDisabled="0" userName="svc_localadmin"/>
+  </User>
+</Groups>
+XML
+# real sysvol GPP files are readable by every authenticated user
+chmod -R a+rX "$GPP_DIR"
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf

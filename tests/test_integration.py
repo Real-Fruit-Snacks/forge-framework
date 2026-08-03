@@ -1354,6 +1354,61 @@ class TestAdcsLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestGppPasswordLab(unittest.TestCase):
+    """gpp_password against the AD lab's SYSVOL Groups.xml fixture."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.ldap import ldap as impacket_ldap
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("ad")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                conn = impacket_ldap.LDAPConnection("ldap://127.0.0.1")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("ad")
+            raise RuntimeError("AD lab did not provision within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_decrypts_sysvol_cpassword(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/gpp_password",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("svc_localadmin : GPP2024!Secret", out)
+            creds = console.store.creds()
+            self.assertEqual(len(creds), 1)
+            self.assertEqual(creds[0]["username"], "svc_localadmin")
+            self.assertEqual(creds[0]["password"], "GPP2024!Secret")
+            self.assertEqual(len(console.store.loot("gpp-password")), 1)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""

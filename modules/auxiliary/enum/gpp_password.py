@@ -127,11 +127,12 @@ class GppPassword(AuxiliaryModule):
     def _check_file(self, conn, host, path, store):
         hits = 0
         try:
-            data = conn.readFile("SYSVOL", path)
+            buf = bytearray()
+            conn.getFile("SYSVOL", path, buf.extend)
         except Exception as e:
             self.print_debug(f"read {path}: {e}")
             return 0
-        text = data.decode("utf-8", errors="replace")
+        text = bytes(buf).decode("utf-8", errors="replace")
         for username, cpassword in find_cpasswords(text):
             try:
                 cleartext = decrypt_cpassword(cpassword)
