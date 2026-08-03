@@ -194,3 +194,10 @@ never run both.
   but console apps write ANSI (sniff BOM/NUL-pattern, don't guess), and
   impacket's putFile callback must return empty bytes at EOF or the
   upload loop never ends.
+- **Ticket loot is CCACHE, never raw KDC-REP bytes** — a consumed TGT
+  needs its session key, which bare AS-REP/TGS-REP bytes don't carry.
+  ccache stores both (and every external tool reads it via KRB5CCNAME).
+  impacket's `Credential.toTGT()` rebuilds a synthetic AS-REP from a
+  ccache entry, so one vendored TGS-REQ shape serves real and
+  ccache-sourced TGTs alike; ccache Principal components are
+  CountedOctetStrings — read their `['data']`, don't decode them.
