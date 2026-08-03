@@ -25,9 +25,9 @@ comment there for what each fixture feeds). Highlights:
   Samba build has no KDS root key, so `msDS-ManagedPassword` is never
   constructed: gmsa_dump can enumerate it but not dump it (Windows DCs
   can — the module says so plainly)
-- `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but this KDC
-  build ignores the flag, so it answers PREAUTH_REQUIRED like everyone
-  else — plus PASSWD_NOTREQD)
+- `noauth` (DONT_REQUIRE_PREAUTH — AS-REP roastable; the lab flips all
+  three Samba switches to make the KDC honor it: `[kdc] require-preauth
+  = no` + the flag on noauth AND on krbtgt — plus PASSWD_NOTREQD)
 - `WS01` — LAPS cleartext password + a BitLocker recovery key. Also holds
   the `HTTP/api.forge.local` SPN (web_svc's constrained-delegation
   target); fixture-created computers have no password, so `entrypoint.sh`

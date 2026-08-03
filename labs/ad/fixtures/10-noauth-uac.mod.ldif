@@ -1,4 +1,16 @@
+# AS-REP roasting on Samba needs THREE switches, not one (Heimdal's
+# require_preauth_p: config || client flag || server flag):
+#  1. [kdc] require-preauth = no in /etc/samba/krb5.conf (entrypoint.sh)
+#  2. DONT_REQ_PREAUTH on the roast target (noauth, here)
+#  3. DONT_REQ_PREAUTH on krbtgt — Samba builds krbtgt's hdb entry with
+#     require_preauth=1 from its stock UAC, which alone forces preauth
+#     for EVERY AS-REQ. Lab-only concession; a Windows DC needs only #2.
 dn: CN=noauth,CN=Users,DC=forge,DC=local
 changetype: modify
 replace: userAccountControl
 userAccountControl: 4194848
+
+dn: CN=krbtgt,CN=Users,DC=forge,DC=local
+changetype: modify
+replace: userAccountControl
+userAccountControl: 4194818

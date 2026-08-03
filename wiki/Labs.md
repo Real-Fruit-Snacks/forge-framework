@@ -109,10 +109,17 @@ never run both.
   the req-body, usage 6). Also: don't set the `renew` kdc-option like
   impacket does — Heimdal takes it literally and dies with
   `KDC_ERR_NEVER_VALID` while Windows just clamps.
-- **Samba's KDC doesn't honor UF_DONT_REQUIRE_PREAUTH** (this build) —
-  every account gets PREAUTH_REQUIRED, so AS-REP roasting can't be tested
-  against the bundled lab. The asreproast module works against Windows
-  KDCs; against Samba it must (and does) skip cleanly.
+- **AS-REP roasting on Samba needs THREE switches, not one** — Heimdal's
+  `require_preauth_p()` is `config || client || server`, so all three
+  must be off: `[kdc] require-preauth = no` in `/etc/samba/krb5.conf`
+  (the file the KDC actually reads — NOT the generated
+  `private/krb5.conf`), `DONT_REQ_PREAUTH` on the roast target, and the
+  same flag on **krbtgt** (Samba builds krbtgt's hdb entry with
+  require_preauth=1 from its stock UAC, which alone forces preauth for
+  every AS-REQ). The lab's fixture + entrypoint set all three; a Windows
+  DC needs only the account flag. Side effect: krbtgt now shows up in
+  DONT_REQ_PREAUTH scans — its AS-REP fails benignly (AES-only keys vs
+  the rc4-only probe).
 - **Provisioning needs `samba-ad-provision`** — the schema files for
   `samba-tool domain provision` live in a separate package from
   `samba-ad-dc`; without it the build dies with "File not found".

@@ -17,7 +17,7 @@
 #                          RBCD target, password-in-description
 #   web_svc                kerberoastable, constrained delegation + T2A4D
 #   noauth                 DONT_REQUIRE_PREAUTH + PASSWD_NOTREQD
-#   10  noauth UAC flags
+#   10  noauth + krbtgt preauth flags (AS-REP roast, see the fixture)
 #   20  backup_svc/web_svc delegation attributes
 #   30  sql_svc$             gMSA (enumerable; no KDS key -> no password)
 #   40+45+50               LAPS schema + computer class + WS01 cleartext
@@ -35,6 +35,20 @@ SAM=/var/lib/samba/private/sam.ldb
 # schema writes need this exact option name (the "dsdb:schema:allow
 # updates" spelling from old wikis is wrong)
 SCHEMA_OPT="dsdb:schema update allowed=yes"
+
+# The embedded Heimdal KDC reads /etc/samba/krb5.conf (NOT the generated
+# private/krb5.conf). [kdc] require-preauth = no is switch #1 of 3 for
+# AS-REP roasting on Samba — fixtures/10-noauth-uac.mod.ldif is #2 and
+# #3. Written on every boot so fast-path boots get it too.
+cat > /etc/samba/krb5.conf <<'KRB5EOF'
+[libdefaults]
+	default_realm = FORGE.LOCAL
+	dns_lookup_realm = false
+	dns_lookup_kdc = false
+
+[kdc]
+	require-preauth = no
+KRB5EOF
 
 # fast path: a previous boot already provisioned onto the volume
 if [ -f "$SAM" ]; then

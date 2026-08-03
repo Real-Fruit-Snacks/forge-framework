@@ -10,10 +10,13 @@ No creds required — just usernames (USERS, or a USER_FILE of candidates).
 Accounts that require preauth are skipped cleanly (that's the expected
 answer from a healthy DC).
 
-LAB NOTE: the bundled Samba AD KDC does not honor UF_DONT_REQUIRE_PREAUTH
-(it demands preauth from every account), so AS-REP roasting can't be
-exercised against the bundled lab — point it at a Windows DC for the
-real thing. Verified behavior against Samba: clean skips, no crash.
+LAB NOTE: AS-REP roasting works against the bundled Samba lab — but only
+because the lab flips all THREE Samba switches for it ([kdc]
+require-preauth = no in the KDC's own krb5.conf, DONT_REQ_PREAUTH on the
+target AND on krbtgt; Heimdal's require_preauth_p is an OR of the three).
+A stock Samba DC demands preauth from every account; a Windows DC needs
+only the account flag. Verified against the lab: noauth roasts and the
+hash decrypts with its NT hash.
 """
 
 import datetime
