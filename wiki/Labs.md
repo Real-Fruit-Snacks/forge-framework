@@ -182,3 +182,15 @@ never run both.
   ticket must be re-encoded through impacket's types.Ticket — a component
   lifted from a decoded TGS-REP keeps its outer tag and produces garbage
   DER (the KDC drops the connection mid-request).
+- **SCMR command exec only works as the smbexec echo-chain** (verified
+  against the windows lab): `cmd /c bat > localfile` constructions get
+  the service tree reaped before the output flushes (instant 1053, empty
+  file). The chain that works: service cmd echoes the payload into a
+  .bat with ^-escaped redirects, runs the bat, deletes it; output goes
+  to a UNC path on the target's own ADMIN$ (the SMB redirector commits
+  the bytes even when the SCM kills the tree). ERROR_SERVICE_REQUEST_
+  TIMEOUT (1053) on StartServiceW is the NORMAL path — cmd.exe never
+  talks to the dispatcher. Also: cmd's `>` writes UTF-16-LE for builtins
+  but console apps write ANSI (sniff BOM/NUL-pattern, don't guess), and
+  impacket's putFile callback must return empty bytes at EOF or the
+  upload loop never ends.

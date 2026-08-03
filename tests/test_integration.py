@@ -359,6 +359,96 @@ class TestWindowsLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestSmbExecWindowsLab(unittest.TestCase):
+    """smb_exec against the windows lab: SYSTEM command execution through
+    a transient SCMR service, output read back over ADMIN$."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab guest SMB not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("exec")
+        finally:
+            console.store.close()
+
+    def _set_base(self):
+        return (
+            "use exploits/windows/smb_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 1445",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+        )
+
+    def test_whoami_as_system(self):
+        out, loot = self._run(*self._set_base(), "run")
+        self.assertNotIn("Traceback", out)
+        self.assertIn("nt authority\\system", out)
+        self.assertEqual(len(loot), 1)
+        self.assertIn("nt authority\\system", loot[0]["content"])
+
+    def test_metachar_command_autowrapped(self):
+        out, loot = self._run(*self._set_base(),
+                              "set COMMAND hostname & whoami", "run")
+        self.assertNotIn("Traceback", out)
+        self.assertIn("nt authority\\system", out)
+        # hostname output is the line before whoami
+        lines = [l.strip() for l in out.splitlines()]
+        idx = next(i for i, l in enumerate(lines)
+                   if "nt authority\\system" in l)
+        self.assertTrue(lines[idx - 1].strip(),
+                        "no hostname line before whoami output")
+
+    def test_check_reports_psexecable(self):
+        out, _ = self._run(*self._set_base(), "check")
+        self.assertNotIn("Traceback", out)
+        self.assertIn("psexec-able", out)
+
+    def test_bad_password_clean_error(self):
+        out, loot = self._run(
+            "use exploits/windows/smb_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 1445",
+            "set USERNAME labadmin",
+            "set PASSWORD wrong-password",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("SMB login failed", out)
+        self.assertEqual(loot, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestSmbEnumLab(unittest.TestCase):
     """smb_enum against the real Samba lab container."""
 
