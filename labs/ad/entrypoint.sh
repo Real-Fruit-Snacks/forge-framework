@@ -134,6 +134,11 @@ msDS-PSOAppliesTo: CN=Helpdesk,CN=Users,DC=forge,DC=local
 LDIF
 ldbadd -H /var/lib/samba/private/sam.ldb /tmp/pso.ldif
 rm /tmp/pso.ldif
+# subnet fixture: a registered site subnet for ad_infra to map
+printf 'dn: CN=10.10.10.0/24,CN=Subnets,CN=Sites,CN=Configuration,DC=forge,DC=local\nchangetype: add\nobjectClass: subnet\nsiteObject: CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=forge,DC=local\n' \
+    > /tmp/subnet.ldif
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/subnet.ldif
+rm /tmp/subnet.ldif
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf
