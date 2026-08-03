@@ -20,6 +20,11 @@ auth).
 
 **Ports:** 139 → `127.0.0.1:10139`, 445 → `127.0.0.1:10445`.
 
+**Auth gotcha:** `map to guest = Bad User` means an UNKNOWN username
+authenticates as guest with ANY password — `smb_login` will report
+`.\ghostuser:hunter2` as "valid" here. Wrong passwords for REAL users
+still fail. Test user-existence against the `ad` lab, not this one.
+
 **Notes:** covers protocol-level impacket (smbclient/rpcdump/samrdump
 class). For service-control protocols (psexec/wmiexec) use the `windows`
 lab — Samba doesn't emulate Windows SCM/WMI.

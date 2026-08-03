@@ -314,6 +314,190 @@ def windows_lab_enabled():
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestSmbLoginLab(unittest.TestCase):
+    """smb_login against the smb lab container (labuser:labpass @10445)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("smb")
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=10445, timeout=2).close()
+                break
+            except Exception:
+                time.sleep(0.5)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("smb")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_hit_and_miss(self):
+        # NOTE: this lab sets "map to guest = Bad User", so unknown users
+        # authenticate as guest with ANY password — user-existence can only
+        # be tested against the AD lab, not here.
+        out, creds = self._run(
+            "use auxiliary/login/smb_login",
+            f"set RHOSTS {HOST}",
+            "set RPORT 10445",
+            "set USERNAME labuser",
+            "set PASSWORD labpass",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential .\\labuser:labpass", out)
+        self.assertIn("1 valid", out)
+        self.assertEqual(len(creds), 1)
+        self.assertEqual(creds[0]["service"], "smb")
+        self.assertEqual(creds[0]["username"], "labuser")
+
+        out, creds = self._run(
+            "use auxiliary/login/smb_login",
+            f"set RHOSTS {HOST}",
+            "set RPORT 10445",
+            "set USERNAME labuser",
+            "set PASSWORD wrongpass",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("0 valid", out)
+        self.assertEqual(creds, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestSmbLoginAdLab(unittest.TestCase):
+    """smb_login domain creds + pass-the-hash against the AD lab."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_domain_creds(self):
+        out, creds = self._run(
+            "use auxiliary/login/smb_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME ghostuser,analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential forge.local\\analyst:Summer2024!", out)
+        self.assertEqual(len(creds), 1)
+
+    def test_pass_the_hash(self):
+        from Cryptodome.Hash import MD4
+        h = MD4.new()
+        h.update("Summer2024!".encode("utf-16-le"))
+        out, creds = self._run(
+            "use auxiliary/login/smb_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            f"set NTHASH {h.hexdigest()}",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential forge.local\\analyst", out)
+        self.assertEqual(len(creds), 1)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestKerberosLoginLab(unittest.TestCase):
+    """kerberos_login VALIDATE + ENUM against the AD lab KDC."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_validate_good_bad_ghost(self):
+        out, creds = self._run(
+            "use auxiliary/login/kerberos_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst,ghostuser,Administrator",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential analyst:Summer2024!", out)
+        self.assertIn("1 valid", out)
+        self.assertEqual(len(creds), 1)
+        self.assertEqual(creds[0]["service"], "kerberos")
+
+    def test_enum_oracle(self):
+        out, _ = self._run(
+            "use auxiliary/login/kerberos_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst,noauth,ghostuser,Administrator",
+            "set ENUM true",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("analyst — exists", out)
+        self.assertIn("Administrator — exists", out)
+        # noauth's DONT_REQ_PREAUTH surfaces as an AS-REP — bonus signal
+        self.assertIn("noauth — exists (AS-REP", out)
+        self.assertNotIn("ghostuser — exists", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestWindowsLab(unittest.TestCase):
     """windows lab: real Windows Server answers SMB with the lab creds."""

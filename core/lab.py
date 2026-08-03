@@ -31,6 +31,12 @@ _PORT_RE = re.compile(
     r'^\s*-\s*"?127\.0\.0\.1:(\d+):(\d+)(?:/(?:tcp|udp))?"?\s*(?:#.*)?$'
 )
 
+# range mapping: 127.0.0.1:49152-49160:49152-49160 (docker-only lines used
+# to be skipped — but preflight and down-release need to see them too)
+_PORT_RANGE_RE = re.compile(
+    r'^\s*-\s*"?127\.0\.0\.1:(\d+)-(\d+):(\d+)-(\d+)(?:/(?:tcp|udp))?"?\s*(?:#.*)?$'
+)
+
 _DAEMON_DOWN_HINTS = (
     "cannot connect to the docker daemon",
     "failed to connect to the docker api",
@@ -53,14 +59,26 @@ class Lab:
 def _parse_targets(compose_file: Path) -> List[Tuple[int, int]]:
     """Pull the 127.0.0.1 port mappings out of a compose file.
 
-    Deliberately simple: understands only 'ip:host:container' lines, which is
-    the house format for labs (documented in labs/README.md).
+    Understands 'ip:host:container' lines (the house format, documented in
+    labs/README.md) and equal-length ranges ('ip:49152-49160:49152-49160',
+    which the AD labs use for the pinned dynamic-RPC range — preflight and
+    the down-release wait must see those ports too).
     """
     targets = []
     for line in compose_file.read_text(encoding="utf-8").splitlines():
         m = _PORT_RE.match(line)
         if m:
             targets.append((int(m.group(1)), int(m.group(2))))
+            continue
+        m = _PORT_RANGE_RE.match(line)
+        if m:
+            host_lo, host_hi = int(m.group(1)), int(m.group(2))
+            cont_lo, cont_hi = int(m.group(3)), int(m.group(4))
+            if host_hi - host_lo == cont_hi - cont_lo:
+                targets.extend(
+                    (host_lo + i, cont_lo + i)
+                    for i in range(host_hi - host_lo + 1)
+                )
     return targets
 
 
@@ -228,8 +246,28 @@ class LabManager:
         return False
 
     def down(self, name: str) -> None:
-        self.get(name)
+        lab = self.get(name)
         self._compose_run(name, "down", "--remove-orphans")
+        self._wait_ports_released(lab)
+
+    @staticmethod
+    def _wait_ports_released(lab: Lab, timeout: float = 15.0) -> None:
+        """Wait for docker-proxy to actually let go of the lab's host
+        ports. `compose down` returns before the proxies unbind, and an
+        immediate re-up (the test suite does exactly this between classes)
+        dies on docker's 'address already in use'."""
+        deadline = time.time() + timeout
+        pending = {host_port for host_port, _ in lab.targets}
+        while pending and time.time() < deadline:
+            for host_port in list(pending):
+                try:
+                    with socket.create_connection(("127.0.0.1", host_port),
+                                                  timeout=0.3):
+                        pass  # still bound
+                except OSError:
+                    pending.discard(host_port)
+            if pending:
+                time.sleep(0.3)
 
     def purge(self, name: str) -> None:
         """Full reclaim: containers, networks, volumes AND images.

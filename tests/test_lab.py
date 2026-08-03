@@ -39,13 +39,13 @@ class TestDiscovery(unittest.TestCase):
             labs["workstation"].targets,
             [(2445, 445), (23389, 3389), (8007, 8006)],
         )
-        # domain: the DC's 1:1 AD bindings (incl. RPC mapper 135; the
-        # 49152-49160 dynamic range line is for docker, not the parser),
-        # then the member's
+        # domain: the DC's 1:1 AD bindings (incl. RPC mapper 135 AND the
+        # expanded 49152-49160 dynamic range), then the member's
         self.assertEqual(
             labs["domain"].targets,
-            [(135, 135), (389, 389), (88, 88), (88, 88), (445, 445),
-             (3445, 445), (33389, 3389), (8008, 8006)],
+            [(135, 135), (389, 389), (88, 88), (88, 88), (445, 445)]
+            + [(49152 + i, 49152 + i) for i in range(9)]
+            + [(3445, 445), (33389, 3389), (8008, 8006)],
         )
 
     def test_unknown_lab_raises(self):
