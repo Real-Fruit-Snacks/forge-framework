@@ -19,6 +19,10 @@ fresh on every boot** (stateless — no volume).
 - `web_svc / Web2024!` with SPN `HTTP/intranet.forge.local` (also
   kerberoastable), constrained delegation to `HTTP/api.forge.local` with
   protocol transition (TRUSTED_TO_AUTH_FOR_DELEGATION)
+- `sql_svc$` — a gMSA (retrievable by Builtin Administrators). This
+  Samba build has no KDS root key, so `msDS-ManagedPassword` is never
+  constructed: gmsa_dump can enumerate it but not dump it (Windows DCs
+  can — the module says so plainly)
 - `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but see the
   caveat below: this KDC build ignores the flag, so it answers
   PREAUTH_REQUIRED like everyone else)

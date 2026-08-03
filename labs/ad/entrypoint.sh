@@ -7,7 +7,9 @@
 #   Administrator/P@ssw0rd123, analyst/Summer2024!,
 #   backup_svc (kerberoastable SPN + unconstrained delegation),
 #   web_svc (constrained delegation with protocol transition, and RBCD
-#   delegate on backup_svc), guest-readable share [shared].
+#   delegate on backup_svc), sql_svc$ (gMSA — enumerable, but this Samba
+#   build never constructs the managed password), guest-readable share
+#   [shared].
 set -e
 
 rm -f /etc/samba/smb.conf
@@ -50,6 +52,14 @@ printf 'dn: CN=web_svc,CN=Users,DC=forge,DC=local\nchangetype: modify\nadd: msDS
     >> /tmp/deleg.ldif
 ldbmodify -H /var/lib/samba/private/sam.ldb /tmp/deleg.ldif
 rm /tmp/deleg.ldif
+# gMSA fixture: Samba 4.17 hosts the object but has no KDS root key, so
+# it can be ENUMERATED but msDS-ManagedPassword is never constructed —
+# exactly the split the gmsa_dump module documents. Retrieval list is
+# Builtin Administrators (SDDL BA).
+printf 'dn: CN=sql_svc,CN=Managed Service Accounts,DC=forge,DC=local\nchangetype: add\nobjectClass: msDS-GroupManagedServiceAccount\nsAMAccountName: sql_svc$\nuserAccountControl: 4096\nmsDS-ManagedPasswordInterval: 30\nservicePrincipalName: HTTP/sql.forge.local\nmsDS-GroupMSAMembership: O:SYG:SYD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\n' \
+    > /tmp/gmsa.ldif
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/gmsa.ldif
+rm /tmp/gmsa.ldif
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf
