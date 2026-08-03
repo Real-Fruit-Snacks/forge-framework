@@ -51,6 +51,18 @@ things Samba can emulate):
   waits for a profile to exist before pinning it. The DC's MAC is also
   pinned in compose.yml to minimize churn. Throwaway lab rules — don't
   ship this anywhere real.
+- **Win11's Defender kills the psexec pattern** (the second hard
+  lesson): service-spawned cmd chains (smb_exec's shape) are detected as
+  `VirTool:Win32/MSFPsExecCommand` and quarantined — every SCMR exec
+  silently produces no output. Server 2022's Defender tolerates the same
+  chain; Win11's doesn't. `oem/join.ps1` disables realtime monitoring +
+  cloud protection at install time. If a member ever comes up with exec
+  "working but empty", check `Microsoft-Windows-Windows
+  Defender/Operational.evtx` first.
+- **TSCH on workgroup machines denies local accounts remotely** (UAC
+  token filtering: non-RID-500 local admins get filtered tokens —
+  `rpc_s_access_denied` on atsvc while SCMR tolerates the same creds).
+  Domain accounts bypass it — another reason the member matters.
 - **Domain state persists** on the `dc-state` volume: the domain SID is
   stable across restarts, so the member's trust relationship survives.
   `lab purge domain` wipes both volumes (member reinstalls, domain

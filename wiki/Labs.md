@@ -220,3 +220,27 @@ never run both.
   `SMBTransport(filename=)` wants `\svcctl`, NOT `\pipe\svcctl` (it
   prepends), and a faulted EPM lookup poisons the association — retry
   maps on a fresh dce.
+- **Remote TSCH is the tightest admin channel on modern Windows** — on
+  the lab guests, atsvc binds but `hSchRpcRegisterTask` answers
+  `rpc_s_access_denied` to EVERYONE (workgroup 2022 filters local
+  accounts via UAC; the domain member denies domain admins too, with
+  Domain Admins verified nested in local Administrators). Local
+  `schtasks` as SYSTEM works fine — it's the remote interface ACL, not
+  the service. at_exec reports the denial cleanly; happy path needs a
+  field/domain target. Also: `schtasks /s 127.0.0.1 /u user` is refused
+  by design ("credentials are not allowed on the local machine").
+- **Win11 Defender kills the psexec pattern, and self-heals** — service
+  -> cmd.exe chains are quarantined as `VirTool:Win32/MSFPsExecCommand`
+  (Server 2022's Defender ignores the same chain). First symptom is
+  exec "succeeding" with empty output; the evidence is in
+  `Microsoft-Windows-Windows Defender/Operational.evtx` (readable over
+  ADMIN$ with FILE_SHARE_READ|WRITE — it's locked otherwise).
+  `Set-MpPreference -DisableRealtimeMonitoring` gets reverted within
+  hours; the durable off-switch is the GPO key
+  `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\DisableAntiSpyware=1`
+  (now in the domain member's oem).
+- **A stale domain join reports ACCOUNT_LOCKED_OUT** — the member's disk
+  predated the current dc-state (its machine account didn't exist), so
+  every domain login returned LOCKED_OUT while the DC swore the account
+  was fine. Trust problems wear misleading error codes; check the
+  computer account in AD before believing them.

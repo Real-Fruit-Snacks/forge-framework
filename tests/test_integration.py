@@ -2641,6 +2641,65 @@ class TestDomainFullLab(unittest.TestCase):
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestAtExecDomainLab(unittest.TestCase):
+    """at_exec against the domain member: check() passes (ADMIN$ + atsvc
+    bind work with domain creds), and the remote-register denial this
+    guest's atsvc ACL enforces comes back CLEAN, not as a crash."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        deadline = time.time() + 2400
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=3445, timeout=10)
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(10)
+        else:
+            cls.manager.down("domain")
+            raise RuntimeError("domain member not up within 2400s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_check_ok_and_clean_denial(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use exploits/windows/at_exec",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 3445",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "check",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("atexec-able", out)
+            # the guest's atsvc ACL denies remote RegisterTask to
+            # everyone (documented); the module must report it cleanly
+            self.assertIn("rpc_s_access_denied", out)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestHostPackLab(unittest.TestCase):
     """Host pack (host_info, host_sessions, local_admins, webdav_check)
     against the domain lab's Windows member."""

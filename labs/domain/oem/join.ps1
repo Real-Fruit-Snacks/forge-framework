@@ -5,6 +5,23 @@
 
 $joined = $false
 
+# Lab target hygiene: Windows Defender flags the psexec pattern (service
+# -> cmd.exe chains) as VirTool:Win32/MSFPsExecCommand and kills every
+# SCMR-class exec module on Win11 (Server 2022's Defender tolerates it).
+# A lab exists to BE attacked. Set-MpPreference alone is NOT enough —
+# Defender self-heals it within hours. The durable off-switch is the GPO
+# key (equivalent to "Turn off Microsoft Defender Antivirus"):
+try {
+    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+    Set-MpPreference -MAPSReporting 0 -ErrorAction Stop
+    Set-MpPreference -SubmitSamplesConsent 2 -ErrorAction Stop
+} catch {
+    "Defender preference failed: $_" | Out-File -FilePath C:\OEM\DEFENDER-FAILED.txt
+}
+$wd = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender'
+New-Item -Path $wd -Force | Out-Null
+Set-ItemProperty -Path $wd -Name DisableAntiSpyware -Value 1 -Type DWord
+
 # Lab networking: the firewall must stay open on EVERY boot, including
 # when NLA mints a new Public profile. Set it now, and via a boot task
 # that WAITS for a network profile to exist before pinning it Private
