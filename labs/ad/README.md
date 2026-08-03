@@ -19,7 +19,8 @@ comment there for what each fixture feeds). Highlights:
 - `backup_svc / Backup2024!` — kerberoastable, unconstrained delegation,
   RBCD target for web_svc, password-in-description
 - `web_svc / Web2024!` — kerberoastable, constrained delegation with
-  protocol transition
+  protocol transition (may impersonate anyone to `HTTP/api.forge.local` —
+  that's the S4U module's target)
 - `sql_svc$` — a gMSA (retrievable by Builtin Administrators). This
   Samba build has no KDS root key, so `msDS-ManagedPassword` is never
   constructed: gmsa_dump can enumerate it but not dump it (Windows DCs
@@ -27,7 +28,10 @@ comment there for what each fixture feeds). Highlights:
 - `noauth` (DONT_REQUIRE_PREAUTH set for AS-REP roasting — but this KDC
   build ignores the flag, so it answers PREAUTH_REQUIRED like everyone
   else — plus PASSWD_NOTREQD)
-- `WS01` — LAPS cleartext password + a BitLocker recovery key
+- `WS01` — LAPS cleartext password + a BitLocker recovery key. Also holds
+  the `HTTP/api.forge.local` SPN (web_svc's constrained-delegation
+  target); fixture-created computers have no password, so `entrypoint.sh`
+  sets one — without Kerberos keys the KDC can't issue tickets to it
 - `WeakServicePSO` on Helpdesk, site subnet 10.10.10.0/24, ESC1-shaped
   template `VulnWeb`, a GPP cpassword in SYSVOL
 - `[shared]` guest-readable share with a flag file

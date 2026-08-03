@@ -170,3 +170,15 @@ never run both.
   "SID mismatch between PAC and looked up client"); and Samba's NDR
   puller wants LOGON_INFO's declared ObjectBufferLength 8-padded while
   Windows doesn't care.
+- **S4U2self's PA-FOR-USER checksum is not a plain HMAC** — Heimdal's
+  `mssfu.c` verifies RFC 4757 KERB_CHECKSUM_HMAC_MD5 with usage 17
+  (Ksign = HMAC(K, "signaturekey\0"), then MD5(LE32(17) || blob), then
+  HMAC(Ksign, that)) and answers KRB_AP_ERR_BAD_INTEGRITY for the plain
+  form. Three more S4U traps: the delegation target SPN must exist in
+  the KDB (KDC_ERR_S_PRINCIPAL_UNKNOWN) and the target account must hold
+  keys — a fixture-created computer has no password, so no enctypes
+  (KDC_ERR_ETYPE_NOSUPP); the additional-tickets field must be in the
+  req-body BEFORE the authenticator cksum is computed; and the S4U2self
+  ticket must be re-encoded through impacket's types.Ticket — a component
+  lifted from a decoded TGS-REP keeps its outer tag and produces garbage
+  DER (the KDC drops the connection mid-request).

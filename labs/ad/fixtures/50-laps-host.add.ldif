@@ -5,3 +5,4 @@ sAMAccountName: WS01$
 userAccountControl: 4096
 dNSHostName: ws01.forge.local
 ms-Mcs-AdmPwd: W0rkstation!2024
+servicePrincipalName: HTTP/api.forge.local

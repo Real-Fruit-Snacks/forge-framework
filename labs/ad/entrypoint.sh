@@ -21,6 +21,8 @@
 #   20  backup_svc/web_svc delegation attributes
 #   30  sql_svc$             gMSA (enumerable; no KDS key -> no password)
 #   40+45+50               LAPS schema + computer class + WS01 cleartext
+#                          (WS01 also carries HTTP/api.forge.local — the
+#                          SPN web_svc may delegate to)
 #   60  WeakServicePSO       weak fine-grained policy on Helpdesk
 #   70                       site subnet 10.10.10.0/24
 #   80  VulnWeb              ESC1-shaped certificate template
@@ -73,6 +75,11 @@ for f in /fixtures/*.ldif; do
     sed "s/__WEB_SID__/$WEB_SID/g" "$f" \
         | "$tool" -H "$SAM" --option="$SCHEMA_OPT" /dev/stdin
 done
+
+# WS01 is fixture-created (ldbadd), so it has no password and therefore no
+# Kerberos keys — the KDC answers KDC_ERR_ETYPE_NOSUPP for tickets to its
+# SPN. Give it a machine password so web_svc's S4U2proxy target exists.
+samba-tool user setpassword 'WS01$' --newpassword='Ws01Machine2024!'
 
 # --- GPP fixture: cpassword XML in the Default Domain Policy ----------
 # readable by every authenticated user, like real sysvol content
