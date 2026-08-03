@@ -35,6 +35,11 @@ def load(path) -> Optional[Dict]:
 
 def apply(console, config: Optional[Dict]) -> None:
     """Apply a loaded config to a console: workspace, color, setg defaults."""
+    # LHOST default: the IP this host would use to reach a target (UDP
+    # connect to TEST-NET — no packets sent). config/setg overrides.
+    if "LHOST" not in console.global_options:
+        from core.netutil import detect_local_ip
+        console.global_options["LHOST"] = detect_local_ip()
     if not config:
         return
     general = config.get("general", {})

