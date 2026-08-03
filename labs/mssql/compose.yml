@@ -1,0 +1,13 @@
+services:
+  mssql:
+    # Microsoft SQL Server 2022 (Developer edition) — the TDS auth target.
+    # Stock image: no build step, credentials come from the environment.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "For9e_SQL!2024"
+      MSSQL_PID: Developer
+    ports:
+      - "127.0.0.1:11433:1433"
+    # sqlservr wants ~2GB; give it room without starving the docker host
+    mem_limit: 3g

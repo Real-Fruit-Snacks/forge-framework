@@ -18,6 +18,7 @@ services:
     ports:
       - "127.0.0.1:1445:445"    # impacket / SMB / psexec-class targets
       - "127.0.0.1:13389:3389"  # RDP
+      - "127.0.0.1:15985:5985"  # WinRM (enabled in the guest; evil-winrm targets)
       - "127.0.0.1:8006:8006"   # noVNC web viewer (watch the install)
     volumes:
       - win-data:/storage

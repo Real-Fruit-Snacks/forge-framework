@@ -306,6 +306,10 @@ def impacket_available():
     return importlib.util.find_spec("impacket") is not None
 
 
+def winrm_available():
+    return importlib.util.find_spec("winrm") is not None
+
+
 def windows_lab_enabled():
     """Opt-in: first boot installs Windows (~20 min), so this is off
     unless FORGE_WINDOWS_LAB=1 is set in the environment."""
@@ -494,6 +498,271 @@ class TestKerberosLoginLab(unittest.TestCase):
         # noauth's DONT_REQ_PREAUTH surfaces as an AS-REP — bonus signal
         self.assertIn("noauth — exists (AS-REP", out)
         self.assertNotIn("ghostuser — exists", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestLdapLoginLab(unittest.TestCase):
+    """ldap_login simple binds against the AD lab."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_hit_and_miss(self):
+        out, creds = self._run(
+            "use auxiliary/login/ldap_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME ghostuser,analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential analyst:Summer2024!", out)
+        self.assertIn("1 valid", out)
+        self.assertEqual(len(creds), 1)
+        self.assertEqual(creds[0]["service"], "ldap")
+
+    def test_wrong_password_clean(self):
+        out, creds = self._run(
+            "use auxiliary/login/ldap_login",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD wrongpass",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("0 valid", out)
+        self.assertEqual(creds, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestMultiSprayLab(unittest.TestCase):
+    """multi_spray: one cred across the services table (ad + ssh labs)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+        cls.manager.up("ssh")
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            try:
+                with socket.create_connection((HOST, 12222), timeout=2) as s:
+                    if s.recv(64):
+                        break
+            except OSError:
+                time.sleep(1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ssh")
+        cls.manager.down("ad")
+
+    def test_store_driven_spray(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            store = console.store
+            store.add_host(HOST)
+            store.add_service(HOST, 445, name="smb")
+            store.add_service(HOST, 88, name="kerberos")
+            store.add_service(HOST, 389, name="ldap")
+            store.add_service(HOST, 12222, name="ssh")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/login/multi_spray",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "set DOMAIN forge.local",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            for proto in ("kerberos", "ldap", "smb"):
+                self.assertIn(f"{proto}: VALID", out)
+            self.assertIn("no account lockout policy", out)
+            # ssh respects the stored non-default port (12222, not 22)
+            self.assertIn("ssh:", out)
+            creds = {(c["service"], c["username"]) for c in store.creds()}
+            for proto in ("kerberos", "ldap", "smb"):
+                self.assertIn((proto, "analyst"), creds)
+        finally:
+            console.store.close()
+
+    def test_ssh_hit_on_stored_port(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            store = console.store
+            store.add_host(HOST)
+            store.add_service(HOST, 12222, name="ssh")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/login/multi_spray",
+                    "set USERNAME admin",
+                    "set PASSWORD admin",
+                    "set DOMAIN .",
+                    "set PROTOCOLS ssh",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("ssh: VALID", out)
+            self.assertIn("ssh admin@", out)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestMssqlLoginLab(unittest.TestCase):
+    """mssql_login against the mssql lab (sa @11433)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.tds import MSSQL
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("mssql")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            try:
+                s = MSSQL(HOST, 11433)
+                s.connect()
+                if s.login("master", "sa", "For9e_SQL!2024"):
+                    s.disconnect()
+                    break
+            except Exception:
+                time.sleep(2)
+        else:
+            cls.manager.down("mssql")
+            raise RuntimeError("mssql lab not up within 120s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("mssql")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_hit_and_miss(self):
+        out, creds = self._run(
+            "use auxiliary/login/mssql_login",
+            f"set RHOSTS {HOST}",
+            "set RPORT 11433",
+            "set USERNAME ghostuser,sa",
+            "set PASSWORD For9e_SQL!2024",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential sa:For9e_SQL!2024", out)
+        self.assertIn("1 valid", out)
+        self.assertEqual(len(creds), 1)
+        self.assertEqual(creds[0]["service"], "mssql")
+
+        out, creds = self._run(
+            "use auxiliary/login/mssql_login",
+            f"set RHOSTS {HOST}",
+            "set RPORT 11433",
+            "set USERNAME sa",
+            "set PASSWORD wrongpass",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("0 valid", out)
+        self.assertEqual(creds, [])
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(winrm_available(), "pywinrm not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestWinrmLoginLab(unittest.TestCase):
+    """winrm_login against the windows lab's WinRM (15985)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                with socket.create_connection((HOST, 15985), timeout=3):
+                    break
+            except OSError:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab WinRM not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_hit_and_miss(self):
+        out, creds = self._run(
+            "use auxiliary/login/winrm_login",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15985",
+            "set USERNAME ghostuser,labadmin",
+            "set PASSWORD Labpass2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("valid credential labadmin:Labpass2024!", out)
+        self.assertIn("evil-winrm", out)
+        self.assertEqual(len(creds), 1)
+        self.assertEqual(creds[0]["service"], "winrm")
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

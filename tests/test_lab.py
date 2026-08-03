@@ -21,7 +21,8 @@ class TestDiscovery(unittest.TestCase):
 
     def test_discovers_shipped_labs(self):
         self.assertEqual(
-            {"web", "ssh", "smb", "ad", "windows", "workstation", "domain"},
+            {"web", "ssh", "smb", "ad", "windows", "workstation", "domain",
+             "mssql"},
             set(self.mgr.labs()),
         )
 
@@ -30,10 +31,11 @@ class TestDiscovery(unittest.TestCase):
         self.assertEqual(labs["web"].targets, [(18080, 8080)])
         self.assertEqual(labs["ssh"].targets, [(12222, 22)])
         self.assertEqual(labs["smb"].targets, [(10139, 139), (10445, 445)])
+        self.assertEqual(labs["mssql"].targets, [(11433, 1433)])
         # windows: trailing comments on port lines are tolerated
         self.assertEqual(
             labs["windows"].targets,
-            [(1445, 445), (13389, 3389), (8006, 8006)],
+            [(1445, 445), (13389, 3389), (15985, 5985), (8006, 8006)],
         )
         self.assertEqual(
             labs["workstation"].targets,
