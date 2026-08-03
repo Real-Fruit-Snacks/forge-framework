@@ -44,7 +44,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **207 tests** — unit plus docker-gated integration running real modules
+- **306 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start

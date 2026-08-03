@@ -26,6 +26,11 @@ which runs Windows in a KVM VM **inside** the container. Requires
 - RDP: `127.0.0.1:13389`
 - SMB/impacket targets: `127.0.0.1:1445` (set `RPORT 1445` in modules)
 
+**Networking note:** `oem/` pins the Private profile and opens the
+firewall at specialize time and on every boot (scheduled task) — without
+it, a Windows guest that mints a Public NLA profile after a rebuild
+silently stops answering SMB/RDP. Throwaway lab rules; never ship it.
+
 **Ports:** 445→1445 (impacket), 3389→13389 (RDP), 8006→8006 (viewer).
 
 **Resources:** 4G RAM, 2 cores, 32G disk (env in compose.yml — raise

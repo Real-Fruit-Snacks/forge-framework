@@ -21,6 +21,8 @@ services:
       - "127.0.0.1:8006:8006"   # noVNC web viewer (watch the install)
     volumes:
       - win-data:/storage
+      # firewall/NLA fix at specialize time + every boot (see oem/)
+      - ./oem:/oem
     stop_grace_period: 2m
 
 volumes:
