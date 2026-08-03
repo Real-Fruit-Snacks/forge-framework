@@ -143,3 +143,13 @@ never run both.
   modify` blocks back to back parse as one entry and `ldbmodify` dies
   with "attribute 'dn' was not found in the schema". Under `set -e` that
   silently kills a whole lab provision.
+- **Samba schema extensions** need `dsdb:schema update allowed` as an
+  ldb `--option` (the exact parameter name — "dsdb:schema:allow updates"
+  from old wikis is wrong), `changetype: add` in a separate file from
+  modifies (`ldbadd` rejects modify blocks), and correct
+  attributeSyntax/oMSyntax pairs (2.5.5.16 = oMSyntax 65). PSOs need
+  `msDS-PasswordReversibleEncryptionEnabled` and
+  `msDS-PasswordHistoryLength` as mandatory attributes.
+- **PSOs are admin-only on Samba** — Windows lets any authenticated
+  user read Password Settings Objects; Samba's CN=System ACLs don't.
+  Fine-grained policy checks need a privileged account against the lab.

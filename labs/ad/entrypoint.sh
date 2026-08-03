@@ -28,9 +28,10 @@ samba-tool user create backup_svc 'Backup2024!' \
 samba-tool user setexpiry --noexpiry backup_svc
 samba-tool spn add HTTP/web.forge.local backup_svc
 # asreproastable fixture: DONT_REQUIRE_PREAUTH (0x400000 = 4194304) on top
-# of a normal account (512) -> 4194816
+# of a normal account (512) -> 4194816; plus PASSWD_NOTREQD (0x20) so the
+# misconfig battery has a finding -> 4194848
 samba-tool user create noauth 'Noauth2024!'
-printf 'dn: CN=noauth,CN=Users,DC=forge,DC=local\nchangetype: modify\nreplace: userAccountControl\nuserAccountControl: 4194816\n' \
+printf 'dn: CN=noauth,CN=Users,DC=forge,DC=local\nchangetype: modify\nreplace: userAccountControl\nuserAccountControl: 4194848\n' \
     > /tmp/preauth.ldif
 ldbmodify -H /var/lib/samba/private/sam.ldb /tmp/preauth.ldif
 rm /tmp/preauth.ldif
@@ -60,6 +61,79 @@ printf 'dn: CN=sql_svc,CN=Managed Service Accounts,DC=forge,DC=local\nchangetype
     > /tmp/gmsa.ldif
 ldbadd -H /var/lib/samba/private/sam.ldb /tmp/gmsa.ldif
 rm /tmp/gmsa.ldif
+# LAPS fixture: schema lacks the LAPS attributes, so extend it. Samba
+# refuses schema writes unless "dsdb:schema update allowed" is set —
+# pass it as an ldb option (the schema_data ldb module checks this exact
+# name; "dsdb:schema:allow updates" is a red herring from old wikis).
+SCHEMA_OPT="dsdb:schema update allowed=yes"
+cat > /tmp/laps.ldif <<'LDIF'
+dn: CN=ms-Mcs-AdmPwd,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: attributeSchema
+lDAPDisplayName: ms-Mcs-AdmPwd
+adminDisplayName: ms-Mcs-AdmPwd
+attributeID: 1.2.840.113556.1.8000.2554.50051
+attributeSyntax: 2.5.5.5
+oMSyntax: 19
+isSingleValued: TRUE
+searchFlags: 904
+showInAdvancedViewOnly: TRUE
+
+dn: CN=ms-Mcs-AdmPwdExpirationTime,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: attributeSchema
+lDAPDisplayName: ms-Mcs-AdmPwdExpirationTime
+adminDisplayName: ms-Mcs-AdmPwdExpirationTime
+attributeID: 1.2.840.113556.1.8000.2554.50052
+attributeSyntax: 2.5.5.16
+oMSyntax: 65
+isSingleValued: TRUE
+searchFlags: 0
+showInAdvancedViewOnly: TRUE
+LDIF
+ldbadd -H /var/lib/samba/private/sam.ldb --option="$SCHEMA_OPT" /tmp/laps.ldif
+# allow the attributes on computer objects (a modify, so ldbmodify)
+cat > /tmp/laps-class.ldif <<'LDIF'
+dn: CN=Computer,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: modify
+add: mayContain
+mayContain: ms-Mcs-AdmPwd
+-
+add: mayContain
+mayContain: ms-Mcs-AdmPwdExpirationTime
+
+dn:
+changetype: modify
+add: schemaUpdateNow
+schemaUpdateNow: 1
+LDIF
+ldbmodify -H /var/lib/samba/private/sam.ldb --option="$SCHEMA_OPT" /tmp/laps-class.ldif
+printf 'dn: CN=WS01,CN=Computers,DC=forge,DC=local\nchangetype: add\nobjectClass: computer\nsAMAccountName: WS01$\nuserAccountControl: 4096\ndNSHostName: ws01.forge.local\nms-Mcs-AdmPwd: W0rkstation!2024\n' \
+    > /tmp/laps-host.ldif
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/laps-host.ldif
+rm /tmp/laps.ldif /tmp/laps-class.ldif /tmp/laps-host.ldif
+# PSO fixture: a weak fine-grained policy applying to Helpdesk — no
+# lockout, 4-char minimum. The spray-target dream, and deterministic
+# for ad_policies to find.
+cat > /tmp/pso.ldif <<'LDIF'
+dn: CN=WeakServicePSO,CN=Password Settings Container,CN=System,DC=forge,DC=local
+changetype: add
+objectClass: msDS-PasswordSettings
+name: WeakServicePSO
+msDS-PasswordSettingsPrecedence: 10
+msDS-PasswordComplexityEnabled: TRUE
+msDS-MinimumPasswordLength: 4
+msDS-PasswordHistoryLength: 0
+msDS-MinimumPasswordAge: 0
+msDS-MaximumPasswordAge: -36288000000000
+msDS-LockoutThreshold: 0
+msDS-LockoutObservationWindow: -18000000000
+msDS-LockoutDuration: -18000000000
+msDS-PasswordReversibleEncryptionEnabled: FALSE
+msDS-PSOAppliesTo: CN=Helpdesk,CN=Users,DC=forge,DC=local
+LDIF
+ldbadd -H /var/lib/samba/private/sam.ldb /tmp/pso.ldif
+rm /tmp/pso.ldif
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf
