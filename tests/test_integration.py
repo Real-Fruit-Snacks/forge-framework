@@ -792,6 +792,105 @@ class TestMssqlLoginLab(unittest.TestCase):
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(winrm_available(), "pywinrm not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestProcWatchLab(unittest.TestCase):
+    """proc_watch against the windows lab: a watcher catches the service
+    spawn that smb_exec creates, in real time."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        # poll a REAL WinRM handshake: docker-proxy accepts tcp long
+        # before the guest's WinRM service answers (same lie as LDAP)
+        import winrm
+        deadline = time.time() + 420
+        while time.time() < deadline:
+            try:
+                s = winrm.Session("http://127.0.0.1:15985/wsman",
+                                  auth=("labadmin", "Labpass2024!"),
+                                  transport="ntlm",
+                                  server_cert_validation="ignore",
+                                  operation_timeout_sec=10,
+                                  read_timeout_sec=11)
+                if s.run_cmd("whoami").status_code == 0:
+                    break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab WinRM not answering within 420s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def test_catches_service_spawn(self):
+        import threading
+
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            # NOTE: redirect_stdout is process-global — one outer capture
+            # for both threads, never a redirect per thread
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                def watch():
+                    for command in (
+                        "use auxiliary/enum/proc_watch",
+                        f"set RHOSTS {HOST}",
+                        "set RPORT 15985",
+                        "set USERNAME labadmin",
+                        "set PASSWORD Labpass2024!",
+                        "set INTERVAL 1",
+                        "set DURATION 12",
+                        "run",
+                    ):
+                        console.onecmd(command)
+
+                t = threading.Thread(target=watch)
+                t.start()
+                time.sleep(3)  # let the baseline snapshot land
+                for command in (
+                    "use exploits/windows/smb_exec",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    # long-lived spawn: the service's cmd->ping tree lives
+                    # for minutes, so even a 1s poll catches it reliably
+                    "set COMMAND ping -t 127.0.0.1",
+                    "set TIMEOUT 5",
+                    "run",
+                ):
+                    console.onecmd(command)
+                t.join(timeout=20)
+                # clean up the orphan ping tree on the guest
+                for command in (
+                    "use exploits/windows/smb_exec",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    "set COMMAND taskkill /f /im ping.exe",
+                    "run",
+                ):
+                    console.onecmd(command)
+            self.assertFalse(t.is_alive(), "watcher did not finish")
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("service started", out)
+            self.assertIn("cmd.exe", out)
+            loot = console.store.loot("proc-watch")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("cmd.exe", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(winrm_available(), "pywinrm not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestWinrmLoginLab(unittest.TestCase):
     """winrm_login against the windows lab's WinRM (15985)."""
 
