@@ -9,6 +9,11 @@ What it serves (all deliberate):
   GET  /protected       401  basic-auth realm "lab", creds admin:hunter2
   GET  /login           200  login form
   POST /login           200  "Welcome" (admin/hunter2) or "invalid username or password"
+  GET  /.env            200  real KEY=VAL (content validators must accept)
+  GET  /decoy.env       200  HTML page (validators must reject — soft-404 shape)
+  GET  /app/*           200  SPA shell with a VARYING-length build nonce —
+                           exact (status,size) wildcard suppression fails on it;
+                           prefix-based suppression must catch it
   everything else       404
 
 Stdlib only, one file, no config. Predictability is the point: module tests
@@ -76,6 +81,22 @@ class LabHandler(http.server.BaseHTTPRequestHandler):
     # --------------------------------------------------------------- routes
     def do_GET(self):
         path = self._path()
+        if path == "/.env":
+            self._send(200, "APP_ENV=production\nDB_PASSWORD=hunter2\n",
+                           {"Content-Type": "text/plain"})
+            return
+        if path == "/decoy.env":
+            self._send(200, self._page("Totally Env", "looks config-y, isn't"))
+            return
+        if path.startswith("/app/"):
+            # SPA catch-all: identical shell, varying-length build nonce,
+            # so status+size fingerprinting alone can't suppress it
+            self._spa_counter = getattr(self, "_spa_counter", 0) + 1
+            nonce = f"{self._spa_counter:x}" * (1 + self._spa_counter % 3)
+            self._send(200, "<!doctype html><title>SPA</title>"
+                            "<div id=\"app\"></div>"
+                            f"<script src=\"/app.js?build={nonce}\"></script>")
+            return
         if path == "/protected":
             if self._check_basic_auth():
                 self._send(200, self._page("Protected", "flag{bas1c_auth_brut3d}"))

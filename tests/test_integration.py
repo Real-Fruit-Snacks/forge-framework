@@ -216,6 +216,31 @@ class TestDirBusterLab(_WebLabCase):
         self.assertIn("/backup/db", out)
         self.assertNotIn("[+] 404", out)
 
+    def test_spa_canary_and_content_validation(self):
+        wordlist = ROOT / "labs" / "web" / "wordlists" / "canary.txt"
+        out = self.console_out(
+            "use auxiliary/scanner/dir_buster",
+            f"set RHOSTS {HOST}",
+            f"set RPORT {PORT}",
+            f"set WORDLIST {wordlist}",
+            "run",
+        )
+        # the SPA catch-all (varying nonce) must be detected and suppressed
+        self.assertIn("catch-all", out)
+        for suppressed in ("/app/config", "/app/admin", "/app/panel",
+                           "/app/dashboard"):
+            self.assertNotIn(f"200 {suppressed}", out)
+        # a real .env passes content validation
+        self.assertIn("200 /.env", out)
+        # an HTML page at .env does not
+        self.assertNotIn("200 /decoy.env", out)
+        # only the real .env lands in loot
+        loot = self.console.store.loot("web-dirs")
+        if loot:
+            self.assertIn("/.env", loot[0]["content"])
+            self.assertNotIn("app/", loot[0]["content"])
+            self.assertNotIn("decoy", loot[0]["content"])
+
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 class TestSshLab(unittest.TestCase):

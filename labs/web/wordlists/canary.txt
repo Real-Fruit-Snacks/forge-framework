@@ -1,0 +1,9 @@
+# Canary/validator test list: /app/* paths all answer the SPA shell with a
+# varying nonce (must be suppressed), /.env is a real KEY=VAL (reported),
+# /decoy.env is an HTML decoy (suppressed by content validation).
+app/config
+app/admin
+app/panel
+app/dashboard
+.env
+decoy.env

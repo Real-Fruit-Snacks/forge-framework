@@ -84,32 +84,75 @@ class TestLooksLikeDir(unittest.TestCase):
 class TestFiltering(unittest.TestCase):
     def test_status_list(self):
         codes = {200, 403}
-        self.assertTrue(db.is_interesting(Response(200, 100, ""), codes, None))
-        self.assertTrue(db.is_interesting(Response(403, 100, ""), codes, None))
-        self.assertFalse(db.is_interesting(Response(404, 100, ""), codes, None))
+        self.assertTrue(db.is_interesting(Response(200, 100, "", b"x"), codes, None))
+        self.assertTrue(db.is_interesting(Response(403, 100, "", b"x"), codes, None))
+        self.assertFalse(db.is_interesting(Response(404, 100, "", b"x"), codes, None))
 
     def test_wildcard_suppression(self):
         codes = {200}
-        wildcard = (200, 555)
-        self.assertFalse(db.is_interesting(Response(200, 555, ""), codes, wildcard))
-        self.assertTrue(db.is_interesting(Response(200, 12, ""), codes, wildcard))
+        page = b"same page body"
+        canary = (200, 555, page)
+        # same family: suppressed — even with a nonce-length wiggle
+        self.assertFalse(db.is_interesting(
+            Response(200, 560, "", page), codes, canary))
+        # different page entirely: reported
+        self.assertTrue(db.is_interesting(
+            Response(200, 12, "", b"real content here"), codes, canary))
+
+    def test_nonce_variant_suppressed(self):
+        # the SPA case: bodies differ by an embedded nonce but are
+        # similar enough to match the canary family
+        codes = {200}
+        canary = (200, 100, b"<title>SPA</title><script src=a.js?b=ab12cd>")
+        resp = Response(200, 105, "",
+                        b"<title>SPA</title><script src=a.js?b=99ff00ee>")
+        self.assertFalse(db.is_interesting(resp, codes, canary))
 
 
 class TestWildcardFingerprint(unittest.TestCase):
     def test_detects_soft_404(self):
-        probe = lambda path: Response(200, 999, "")  # noqa: E731
-        self.assertEqual(db.wildcard_fingerprint(probe), (200, 999))
+        probe = lambda path: Response(200, 999, "", b"soft 404 page")  # noqa: E731
+        self.assertEqual(db.wildcard_fingerprint(probe),
+                         (200, 999, b"soft 404 page"))
+
+    def test_detects_despite_nonce(self):
+        pages = iter([b"shell build=a1", b"shell build=b22ccc"])
+        sizes = iter([15, 18])
+        probe = lambda path: Response(200, next(sizes), "", next(pages))  # noqa: E731
+        canary = db.wildcard_fingerprint(probe)
+        self.assertIsNotNone(canary)
+        self.assertEqual(canary[0], 200)
 
     def test_well_behaved_server(self):
-        probe = lambda path: Response(404, 10, "")  # noqa: E731
+        probe = lambda path: Response(404, 10, "", b"nope")  # noqa: E731
         # identical 404s are also a fingerprint — and harmless, since 404
         # won't be in STATUS_CODES anyway
-        self.assertEqual(db.wildcard_fingerprint(probe), (404, 10))
+        self.assertEqual(db.wildcard_fingerprint(probe), (404, 10, b"nope"))
 
     def test_inconsistent_server(self):
-        responses = iter([Response(200, 1, ""), Response(200, 2, "")])
+        responses = iter([Response(200, 1, "", b"aaaa"),
+                          Response(200, 2, "", b"completely different")])
         probe = lambda path: next(responses)  # noqa: E731
         self.assertIsNone(db.wildcard_fingerprint(probe))
+
+
+class TestContentValidators(unittest.TestCase):
+    def test_env_valid(self):
+        self.assertTrue(db.looks_like_env(b"APP_ENV=prod\nDB_PASSWORD=x\n"))
+
+    def test_env_rejects_html(self):
+        self.assertFalse(db.looks_like_env(b"<html><body>page</body></html>"))
+
+    def test_env_rejects_free_text(self):
+        self.assertFalse(db.looks_like_env(b"just some notes\nno equals here"))
+
+    def test_actuator(self):
+        self.assertTrue(db.looks_like_actuator(b'{"_links": {"self": {}}}'))
+        self.assertFalse(db.looks_like_actuator(b"<html>"))
+
+    def test_validator_for(self):
+        self.assertIs(db.validator_for("/.env"), db.looks_like_env)
+        self.assertIsNone(db.validator_for("/admin"))
 
 
 class TestModuleRun(unittest.TestCase):
