@@ -86,6 +86,8 @@ samba-tool spn add HTTP/intranet.forge.local web_svc
 
 WEB_SID=$(ldbsearch -H "$SAM" '(sAMAccountName=web_svc)' objectSid \
     | awk '/^objectSid:/ {print $2}')
+ANALYST_SID=$(ldbsearch -H "$SAM" '(sAMAccountName=analyst)' objectSid \
+    | awk '/^objectSid:/ {print $2}')
 
 # --- LDIF fixtures, name-ordered; extension picks the tool ------------
 for f in /fixtures/*.ldif; do
@@ -94,7 +96,7 @@ for f in /fixtures/*.ldif; do
         *.mod.ldif) tool=ldbmodify ;;
         *) echo "fixture with unknown tool extension: $f" >&2; exit 1 ;;
     esac
-    sed "s/__WEB_SID__/$WEB_SID/g" "$f" \
+    sed "s/__WEB_SID__/$WEB_SID/g; s/__ANALYST_SID__/$ANALYST_SID/g" "$f" \
         | "$tool" -H "$SAM" --option="$SCHEMA_OPT" /dev/stdin
 done
 

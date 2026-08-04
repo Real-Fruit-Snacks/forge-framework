@@ -278,6 +278,11 @@ never run both.
   0x80094800). Set schema-version 1 (v1 template, same class as the
   stock Web Server template); schema-version 2 without the full v2
   apparatus fails publish-time validation instead.
+- **A blank "Denied by Policy Module" means missing validity fields** —
+  templates without pKIExpirationPeriod/pKIOverlapPeriod/pKIKeyUsage
+  publish and even look enrollable, but every request dies with an
+  empty disposition message (0x8007076D). Copy the values from a
+  healthy template (esc4 does this from the stock User template).
 - **certsvc caches templates — restart after EVERY change** (publish,
   attribute edit, SD edit), or enrollment sees the stale object. And
   `msPKI-Enrollment-Flag` bit 0x2 is CT_FLAG_PEND_ALL_REQUESTS:

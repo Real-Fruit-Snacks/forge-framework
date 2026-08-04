@@ -203,8 +203,11 @@ if ($target.Guid) {
 $policyKey = "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\forge-CA\Policy"
 if (Test-Path $policyKey) {
     $current = @((Get-ItemProperty -Path $policyKey -Name Templates -ErrorAction SilentlyContinue).Templates)
-    if ($current -notcontains 'VulnWeb') {
-        Set-ItemProperty -Path $policyKey -Name Templates -Value ($current + 'VulnWeb')
+    foreach ($tmpl in @('VulnWeb', 'WeakWeb')) {
+        if ($current -notcontains $tmpl) {
+            Set-ItemProperty -Path $policyKey -Name Templates -Value ($current + $tmpl)
+            $current = @($current + $tmpl)
+        }
     }
     Restart-Service certsvc -ErrorAction Continue
     Start-Sleep -Seconds 5
