@@ -57,7 +57,7 @@ services:
       PASSWORD: "Labpass2024!"
       RAM_SIZE: "4G"
       CPU_CORES: "2"
-      DISK_SIZE: "32G"
+      DISK_SIZE: "24G"
     devices:
       - /dev/kvm
     cap_add:

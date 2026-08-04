@@ -24,6 +24,6 @@ the `domain` lab (which ships its own member with auto-join wired up).
 
 **Ports:** 445→2445 (impacket), 3389→23389 (RDP), 8006→8007 (viewer).
 
-**Resources:** 4G RAM, 2 cores, 32G disk. Don't run this, `windows`, and
+**Resources:** 4G RAM, 2 cores, 24G disk. Don't run this, `windows`, and
 `domain` all at once on a small machine — each Windows guest wants its
 own 4G.

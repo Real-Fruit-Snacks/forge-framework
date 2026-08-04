@@ -33,6 +33,6 @@ silently stops answering SMB/RDP. Throwaway lab rules; never ship it.
 
 **Ports:** 445→1445 (impacket), 3389→13389 (RDP), 8006→8006 (viewer).
 
-**Resources:** 4G RAM, 2 cores, 32G disk (env in compose.yml — raise
+**Resources:** 4G RAM, 2 cores, 24G disk (env in compose.yml — raise
 RAM_SIZE if the VM feels slow). Windows eval licensing is per Microsoft's
 evaluation terms, same as a manual eval VM.
