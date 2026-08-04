@@ -189,8 +189,13 @@ class Kerberoast(AuxiliaryModule):
                          for a in packet["attributes"]}
                 name = attrs.get("sAMAccountName", [""])[0]
                 classes = attrs.get("objectClass", [])
-                if name.lower() != "krbtgt" and "computer" not in classes:
-                    out.append((name, attrs.get("servicePrincipalName", [])))
+                # machine accounts: computer class OR the $ name marker
+                # (Samba's SAMR creates them user-class) — roasting a
+                # random 120-char machine password is pointless
+                if name.lower() == "krbtgt" or "computer" in classes \
+                        or name.endswith("$"):
+                    continue
+                out.append((name, attrs.get("servicePrincipalName", [])))
         return out
 
     def run(self):

@@ -148,6 +148,11 @@ class AdEnum(AuxiliaryModule):
         users = list(self._search(
             conn, base, "(&(objectClass=user)(!(objectClass=computer)))", USER_ATTRS
         ))
+        # machine accounts by NAME marker too: Samba's SAMR creates them
+        # user-class (no computer class to filter on), and the trailing $
+        # is the canonical machine marker on any directory
+        users = [a for a in users
+                 if not a.get("sAMAccountName", [""])[0].endswith("$")]
         self.print_good(f"{host}: {len(users)} users")
         roast_count = sum(1 for a in users if is_kerberoastable(a))
         self.print_debug(f"{host}: {roast_count} kerberoastable of {len(users)}")

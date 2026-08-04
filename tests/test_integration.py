@@ -2695,6 +2695,105 @@ class TestAdProbeAdLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestAddComputerRbcdLab(unittest.TestCase):
+    """add_computer + rbcd against the AD lab: machine-account lifecycle
+    works; the RBCD write path reports Samba's system-only refusal
+    cleanly; rbcd get parses the fixture SD."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_machine_account_lifecycle(self):
+        out, creds = self._run(
+            "use auxiliary/attack/add_computer",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set COMPUTER_NAME FZTEST02$",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("created FZTEST02$", out)
+        self.assertIn("authenticates", out)
+        self.assertTrue(any(c["username"] == "FZTEST02$" for c in creds))
+        out, _ = self._run(
+            "use auxiliary/attack/add_computer",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set COMPUTER_NAME FZTEST02$",
+            "set DELETE true",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("deleted", out)
+
+    def test_analyst_privilege_denial_clean(self):
+        out, _ = self._run(
+            "use auxiliary/attack/add_computer",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("doesn't have the right", out)
+
+    def test_rbcd_get_parses_fixture_sd(self):
+        out, _ = self._run(
+            "use auxiliary/attack/rbcd",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set ACTION get",
+            "set TARGET backup_svc",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        # web_svc's SID is in backup_svc's RBCD SD (fixture 20)
+        self.assertIn("-1107", out)
+
+    def test_rbcd_set_system_only_denial(self):
+        out, _ = self._run(
+            "use auxiliary/attack/rbcd",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set ACTION set",
+            "set TARGET WS01$",
+            "set PRINCIPAL_SID S-1-5-21-140191133-2678393782-739835184-1116",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("system-only", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestDcSyncLab(unittest.TestCase):
     """dcsync against the AD lab: Administrator replicates the directory.
     Exercises the pinned RPC range (135 + 49152-49160) end to end."""

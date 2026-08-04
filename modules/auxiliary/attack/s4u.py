@@ -54,6 +54,7 @@ try:
         TGS_REQ,
         Authenticator,
         PA_FOR_USER_ENC,
+        PA_PAC_OPTIONS,
         Ticket as Asn1Ticket,
         seq_set,
         seq_set_iter,
@@ -207,7 +208,10 @@ def s4u2self(service, impersonate, tgt, cipher, session_key, domain, kdc_host):
 
 
 def s4u2proxy(target_spn, s4u_ticket, tgt, cipher, session_key, domain, kdc_host):
-    """Trade the S4U2self ticket for one to target_spn (the allowed list)."""
+    """Trade the S4U2self ticket for one to target_spn (the allowed list).
+    PA-PAC-OPTIONS with the RBCD bit is REQUIRED: without it Samba's KDC
+    never evaluates the target's msDS-AllowedToActOnBehalfOfOtherIdentity
+    (mssfu.c gate) and only checks classic constrained delegation."""
     spn = Principal(target_spn, type=constants.PrincipalNameType.NT_SRV_INST.value)
     tgs_req, req_body, now = _base_tgs_req(
         spn, domain, [constants.KDCOptions.cname_in_addl_tkt.value])
@@ -218,6 +222,15 @@ def s4u2proxy(target_spn, s4u_ticket, tgt, cipher, session_key, domain, kdc_host
     seq_set_iter(req_body, "additional-tickets",
                  (wrapped.to_asn1(Asn1Ticket()),))
     _attach_ap_req(tgs_req, req_body, tgt, cipher, session_key, now)
+    # the RBCD gate: tells the KDC to check the target's RBCD SD, not
+    # only the classic msDS-AllowedToDelegateTo list
+    pac_options = PA_PAC_OPTIONS()
+    pac_options["flags"] = constants.encodeFlags(
+        [constants.PAPacOptions.resource_based_constrained_delegation.value])
+    tgs_req["padata"][1] = noValue
+    tgs_req["padata"][1]["padata-type"] = int(
+        constants.PreAuthenticationDataTypes.PA_PAC_OPTIONS.value)
+    tgs_req["padata"][1]["padata-value"] = encoder.encode(pac_options)
     return sendReceive(encoder.encode(tgs_req), domain.upper(), kdc_host)
 
 

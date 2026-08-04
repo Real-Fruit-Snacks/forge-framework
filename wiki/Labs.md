@@ -245,3 +245,17 @@ never run both.
   every domain login returned LOCKED_OUT while the DC swore the account
   was fine. Trust problems wear misleading error codes; check the
   computer account in AD before believing them.
+- **RBCD is doubly unsupported on Samba 4.17** —
+  `msDS-AllowedToActOnBehalfOfOtherIdentity` is system-only (LDAP
+  writes refused with constraintViolation; fixtures must plant it via
+  ldbmodify), and the KDC's hdb doesn't implement the RBCD check at all
+  (S4U2proxy with the PA-PAC-OPTIONS RBCD bit falls through to classic
+  constrained delegation and denies). The s4u module sends the bit
+  because Windows honors it — no classic-path regression. rbcd set/clear
+  reports the denial plainly; rbcd get still parses fixture SDs fine.
+- **Samba's SAMR makes machine accounts in CN=Users with the USER
+  class** — not CN=Computers/computer-class like Windows. Consequences:
+  dNSHostName violates the objectClass (skip it), DNs must be found by
+  sAMAccountName search not assumed. Also: creating machine accounts
+  needs admin on Samba (no ms-DS-MachineAccountQuota=10 default like
+  Windows) — analyst gets "doesn't have the right", Administrator works.
