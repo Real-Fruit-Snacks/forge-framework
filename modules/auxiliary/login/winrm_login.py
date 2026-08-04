@@ -143,7 +143,7 @@ class WinrmLogin(AuxiliaryModule):
                 f"-u {combo[0]} -p '{combo[1]}'")
 
         started = time.time()
-        found, attempts, errors = brute_force(
+        found, attempts, errors, possibles = brute_force(
             combos, attempt, classify,
             threads=self.get_option("THREADS"),
             join_timeout=timeout + 2,

@@ -526,6 +526,59 @@ class TestKerberosLoginLab(unittest.TestCase):
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
+class TestSnmpLoginLab(unittest.TestCase):
+    """snmp_login against the snmp lab: only 'private-lab' answers."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("snmp")
+        from core import snmp as core_snmp
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                if core_snmp.query(HOST, 10161, "private-lab", timeout=2):
+                    break
+            except Exception:
+                time.sleep(1)
+        else:
+            cls.manager.down("snmp")
+            raise RuntimeError("snmp lab not up within 30s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("snmp")
+
+    def test_spray_hits_and_reads_silence_honestly(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/login/snmp_login",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 10161",
+                    "set COMMUNITIES public,private,private-lab,admin",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("community 'private-lab'", out)
+            self.assertIn("1 valid, 3 inconclusive", out)
+            creds = console.store.creds()
+            self.assertEqual(len(creds), 1)
+            self.assertEqual(creds[0]["service"], "snmp")
+            self.assertEqual(creds[0]["password"], "private-lab")
+            services = console.store.services()
+            self.assertTrue(any(s["name"] == "snmp" for s in services))
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestLdapLoginLab(unittest.TestCase):
     """ldap_login simple binds against the AD lab."""

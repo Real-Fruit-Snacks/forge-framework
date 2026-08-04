@@ -107,7 +107,7 @@ class TestBruteEngine(unittest.TestCase):
             seen.append((u, p))
             return Result(401, 0, "")
 
-        found, attempts, errors = mod._brute("h", combos, attempt, lambda r: "fail")
+        found, attempts, errors, possibles = mod._brute("h", combos, attempt, lambda r: "fail")
         self.assertEqual(found, [])
         self.assertEqual(attempts, 60)
         self.assertEqual(errors, 0)
@@ -123,14 +123,14 @@ class TestBruteEngine(unittest.TestCase):
         classify = lambda r: "success" if r.status == 200 else "fail"  # noqa: E731
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            found, attempts, errors = mod._brute("h", combos, attempt, classify)
+            found, attempts, errors, possibles = mod._brute("h", combos, attempt, classify)
         self.assertEqual(found, [("admin", "pass7")])
         self.assertLess(attempts, 100)
 
     def test_errors_are_counted(self):
         mod = hl.HttpLogin()
         combos = [("u", "p")] * 5
-        found, attempts, errors = mod._brute(
+        found, attempts, errors, possibles = mod._brute(
             "h", combos, lambda u, p: Result(500, 0, ""), lambda r: "error"
         )
         self.assertEqual((found, attempts, errors), ([], 5, 5))

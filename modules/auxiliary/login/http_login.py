@@ -225,7 +225,7 @@ class HttpLogin(AuxiliaryModule):
                 r, baseline, success_string, failure_string) else "fail"
 
         started = time.time()
-        found, attempts, errors = self._brute(host, combos, attempt, classify)
+        found, attempts, errors, possibles = self._brute(host, combos, attempt, classify)
         elapsed = max(time.time() - started, 0.001)
         self.print_status(
             f"{host}: {attempts} attempts in {elapsed:.1f}s, "

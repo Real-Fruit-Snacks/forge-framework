@@ -219,6 +219,8 @@ class LabManager:
                     checks.append(("banner", int(parts[1]), ""))
                 elif kind == "tcp" and len(parts) == 2:
                     checks.append(("tcp", int(parts[1]), ""))
+                elif kind == "udp" and len(parts) == 2:
+                    checks.append(("udp", int(parts[1]), ""))
         if not checks:
             checks = [("tcp", hp, "") for hp, _ in lab.targets]
         return checks, timeout
@@ -228,6 +230,15 @@ class LabManager:
         try:
             if kind == "tcp":
                 with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    return True
+            if kind == "udp":
+                # a UDP "connect" can't prove the app serves — it gates on
+                # the proxy being bound. Real protocol readiness belongs
+                # in tests (the snmp lab's README says the same).
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.settimeout(1)
+                    s.connect(("127.0.0.1", port))
+                    s.send(b"\x00")
                     return True
             if kind == "banner":
                 with socket.create_connection(("127.0.0.1", port), timeout=2) as s:

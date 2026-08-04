@@ -1,0 +1,7 @@
+services:
+  snmp:
+    build:
+      context: ../..   # for core/snmp.py (labs share one codec)
+      dockerfile: labs/snmp/Dockerfile
+    ports:
+      - "127.0.0.1:10161:161/udp"

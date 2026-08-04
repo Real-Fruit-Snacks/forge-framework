@@ -186,7 +186,7 @@ class KerberosLogin(AuxiliaryModule):
             self.print_good(f"{host}: {combo[0]} — {result[1]}")
 
         started = time.time()
-        found, attempts, errors = brute_force(
+        found, attempts, errors, possibles = brute_force(
             combos, attempt, classify,
             threads=self.get_option("THREADS"),
             join_timeout=timeout + 2,
@@ -214,7 +214,7 @@ class KerberosLogin(AuxiliaryModule):
             self.print_good(f"{host}: valid credential {combo[0]}:{combo[1]}")
 
         started = time.time()
-        found, attempts, errors = brute_force(
+        found, attempts, errors, possibles = brute_force(
             combos, attempt, classify,
             threads=self.get_option("THREADS"),
             join_timeout=timeout + 2,

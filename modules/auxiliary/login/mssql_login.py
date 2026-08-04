@@ -146,7 +146,7 @@ class MssqlLogin(AuxiliaryModule):
             self.print_good(f"{host}: valid credential {who}:{combo[1]}")
 
         started = time.time()
-        found, attempts, errors = brute_force(
+        found, attempts, errors, possibles = brute_force(
             combos, attempt, classify,
             threads=self.get_option("THREADS"),
             join_timeout=timeout + 2,

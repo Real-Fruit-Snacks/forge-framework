@@ -180,7 +180,7 @@ class LdapLogin(AuxiliaryModule):
                             f"{combo[0]}:{combo[1]}{note}")
 
         started = time.time()
-        found, attempts, errors = brute_force(
+        found, attempts, errors, possibles = brute_force(
             combos, attempt, classify,
             threads=self.get_option("THREADS"),
             join_timeout=timeout + 2,

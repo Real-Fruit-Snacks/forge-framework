@@ -6,9 +6,15 @@ memory. A bounded queue keeps memory constant, and the stop event makes
 STOP_ON_SUCCESS actually stop early instead of draining a backlog.
 
 attempt(user, pw) -> result (any) or None (transport problem, ignored)
-classify(result)  -> "success" | "fail" | "error"
+classify(result)  -> "success" | "fail" | "error" | "possible"
 
-Returns (found, attempts, errors): found is the list of winning combos.
+"possible" is for ambiguous answers — UDP silence (wrong community or
+dead host?), rate-limited timeouts. Possible attempts don't stop the
+run, don't count as errors, and are reported at the end as their own
+class: the honest middle ground between "valid" and "not valid".
+
+Returns (found, attempts, errors, possibles): found is the list of
+winning combos.
 """
 
 import queue
@@ -26,11 +32,11 @@ def brute_force(
     join_timeout: float = 7.0,
     on_success: Optional[Callable[[Tuple[str, str], Any], None]] = None,
     on_error: Optional[Callable[[Tuple[str, str], Any, int], None]] = None,
-) -> Tuple[List[Tuple[str, str]], int, int]:
+) -> Tuple[List[Tuple[str, str]], int, int, int]:
     stop = threading.Event()
     fed = threading.Event()  # producer has queued every combo
     work = queue.Queue(maxsize=threads * 4)
-    found, attempts, errors = [], [0], [0]
+    found, attempts, errors, possibles = [], [0], [0], [0]
 
     def worker():
         while not stop.is_set():
@@ -56,6 +62,8 @@ def brute_force(
                 errors[0] += 1
                 if on_error:
                     on_error((user, pw), result, errors[0])
+            elif verdict == "possible":
+                possibles[0] += 1
 
     pool = [threading.Thread(target=worker, daemon=True) for _ in range(threads)]
     for t in pool:
@@ -75,7 +83,7 @@ def brute_force(
         t.join(timeout=join_timeout)
     output.print_debug(
         f"brute engine: {attempts[0]}/{len(combos)} attempts, "
-        f"{len(found)} hits, {errors[0]} errors, "
+        f"{len(found)} hits, {errors[0]} errors, {possibles[0]} possible, "
         f"{'stopped early' if stop.is_set() else 'exhausted'}"
     )
-    return found, attempts[0], errors[0]
+    return found, attempts[0], errors[0], possibles[0]
