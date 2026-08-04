@@ -11,3 +11,44 @@ services:
       - "127.0.0.1:11433:1433"
     # sqlservr wants ~2GB; give it room without starving the docker host
     mem_limit: 3g
+
+  mssql2:
+    # the linked-server pivot target (chain exec e2e needs a second
+    # instance to link to)
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "For9e_SQL!2024"
+      MSSQL_PID: Developer
+    ports:
+      - "127.0.0.1:11434:1433"
+    mem_limit: 3g
+
+  link-init:
+    # one-shot: links MSSQL2 into mssql (sp_addlinkedserver + sa login
+    # + rpc out), so the chain path exists before any test runs
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      - mssql
+      - mssql2
+    entrypoint: >
+      bash -c "
+      sleep 10;
+      SQLCMD=/opt/mssql-tools18/bin/sqlcmd;
+      [ -x $$SQLCMD ] || SQLCMD=/opt/mssql-tools/bin/sqlcmd;
+      for i in $$(seq 1 30); do
+      $$SQLCMD -S mssql -U sa -P 'For9e_SQL!2024' -N -C -Q \"
+      IF NOT EXISTS (SELECT 1 FROM sys.servers WHERE name = 'MSSQL2')
+      EXEC sp_addlinkedserver @server='MSSQL2', @srvproduct='',
+           @provider='SQLNCLI', @datasrc='mssql2';
+      IF NOT EXISTS (SELECT 1 FROM sys.linked_logins ll
+                     JOIN sys.servers s ON ll.server_id = s.server_id
+                     WHERE s.name = 'MSSQL2')
+      EXEC sp_addlinkedsrvlogin 'MSSQL2', 'false', NULL, 'sa',
+           'For9e_SQL!2024';
+      EXEC sp_serveroption 'MSSQL2', 'rpc out', 'true';\" && break;
+      sleep 10;
+      done;
+      echo LINK-READY"
+    restart: "no"
+    mem_limit: 512m

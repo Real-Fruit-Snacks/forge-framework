@@ -305,6 +305,16 @@ never run both.
   UPN also rode inside the CSR as an OtherName extension
   (1.3.6.1.4.1.311.20.2.3). esc1 sends both and verifies the SAN is in
   the issued cert before claiming the win.
+- **xp_cmdshell is Windows-only** — SQL Server for Linux (the mcr
+  2022 image) has no such procedure; sp_configure answers "not
+  supported by this edition" and every xp_cmdshell call dies with
+  "blocked access". Test OS exec on the lab via the LINK pivot toward
+  a Windows instance, and report the Linux case cleanly. Chain
+  queries (OPENQUERY, EXEC (...) AT) work fine on Linux.
+- **One-shot lab init containers must retry, never sleep-once** —
+  sqlservr's first boot (model/msdb creation) takes 60-90s, so a
+  fixed sleep before the DDL is a coin flip. loop the command until
+  it lands (mssql lab's link-init).
 - **0x80070576 is ERROR_TIME_SKEW, not a missing-DC error** — the
   message "could not find required Active Directory information" is a
   red herring; the event log says it plainly ("time and/or date

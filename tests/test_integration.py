@@ -3682,6 +3682,112 @@ class TestPkinitLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestMssqlChainLab(unittest.TestCase):
+    """mssql_enum + mssql_exec against the two-instance mssql lab:
+    sysadmin recon, clean Linux xp_cmdshell reporting, and the
+    linked-server chain (OPENQUERY through MSSQL2)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("mssql")
+        # sqlservr takes a while; a real TDS login is the only honest
+        # readiness check
+        from impacket import tds
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                ms_sql = tds.MSSQL(HOST, 11433)
+                ms_sql.connect(timeout=5)
+                if ms_sql.login("master", "sa", "For9e_SQL!2024"):
+                    ms_sql.disconnect()
+                    break
+            except Exception:
+                pass
+            time.sleep(5)
+        else:
+            cls.manager.down("mssql")
+            raise RuntimeError("mssql lab not up within 300s")
+        # and the link itself needs a beat after both are up
+        time.sleep(20)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("mssql")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return buf.getvalue(), console.store.creds()
+        finally:
+            console.store.close()
+
+    def test_enum_reports_link(self):
+        out, creds = self._run(
+            "use auxiliary/enum/mssql_enum",
+            f"set RHOSTS {HOST}",
+            "set RPORT 11433",
+            "set USERNAME sa",
+            "set PASSWORD For9e_SQL!2024",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("Microsoft SQL Server 2022", out)
+        self.assertIn("sa is SYSADMIN", out)
+        self.assertIn("MSSQL2", out)
+        self.assertTrue(any(c["service"] == "mssql" for c in creds))
+
+    def test_xp_cmdshell_linux_reported_cleanly(self):
+        out, _store = self._run(
+            "use auxiliary/attack/mssql_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 11433",
+            "set USERNAME sa",
+            "set PASSWORD For9e_SQL!2024",
+            "set COMMAND whoami",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        # xp_cmdshell doesn't exist on SQL Server for Linux — the module
+        # must say so plainly, not hide it
+        self.assertIn("xp_cmdshell is not supported by this SQL Server",
+                      out)
+
+    def test_chain_query_through_link(self):
+        from impacket import tds
+        ms_sql = tds.MSSQL(HOST, 11433)
+        ms_sql.connect(timeout=10)
+        ms_sql.login("master", "sa", "For9e_SQL!2024")
+        rows = ms_sql.RunSQLQuery(
+            "master", "SELECT * FROM OPENQUERY([MSSQL2], 'SELECT @@VERSION')",
+            tuplemode=True)
+        ms_sql.disconnect()
+        self.assertTrue(rows)
+        self.assertIn("Microsoft SQL Server 2022", rows[0][0])
+
+    def test_chain_exec_reports_cleanly(self):
+        out, _store = self._run(
+            "use auxiliary/attack/mssql_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 11433",
+            "set USERNAME sa",
+            "set PASSWORD For9e_SQL!2024",
+            "set LINK MSSQL2",
+            "set COMMAND whoami",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("chain exec failed", out)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestBloodhoundLab(unittest.TestCase):
     """bloodhound collector against the AD lab: all four CE JSON docs
     in loot, fixture accounts present, membership edges resolved."""
