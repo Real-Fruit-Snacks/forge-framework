@@ -29,8 +29,8 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **54 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
-  profiler with coercion annotation), SMB and AD
+- **55 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
+  profiler with coercion annotation, PoC/vuln search), SMB and AD
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
   policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
   credential hunting over share contents, HTTP/SSH/SMB/Kerberos/LDAP/
@@ -49,7 +49,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **453 tests** — unit plus docker-gated integration running real modules
+- **468 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -74,7 +74,7 @@ cd forge-framework
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- personal CTF/pentest framework
-+ -- --=[ 54 modules loaded
++ -- --=[ 55 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster
