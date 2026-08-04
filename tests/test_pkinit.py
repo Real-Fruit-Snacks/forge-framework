@@ -1,4 +1,4 @@
-"""Unit tests for the pkinit module (loads fine without impacket/crypto).
+"""Unit tests for the pkinit wire core + module (loads without deps).
 
 Run: python3 -m unittest discover -s tests
 """
@@ -12,19 +12,30 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 _spec = importlib.util.spec_from_file_location(
-    "pkinit_mod", ROOT / "modules" / "auxiliary" / "attack" / "pkinit.py"
+    "pkinit_core", ROOT / "core" / "pkinit.py"
 )
 pk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pk)
 
+_mod_spec = importlib.util.spec_from_file_location(
+    "pkinit_mod", ROOT / "modules" / "auxiliary" / "attack" / "pkinit.py"
+)
+mod = importlib.util.module_from_spec(_mod_spec)
+_mod_spec.loader.exec_module(mod)
+
 
 class TestRequirements(unittest.TestCase):
     def test_declares_deps(self):
-        self.assertIn("impacket", pk.Pkinit.requirements)
-        self.assertIn("cryptography", pk.Pkinit.requirements)
+        self.assertIn("impacket", mod.Pkinit.requirements)
+        self.assertIn("cryptography", mod.Pkinit.requirements)
 
     def test_module_loads_without_deps(self):
-        self.assertIsNotNone(pk.Pkinit)
+        self.assertIsNotNone(mod.Pkinit)
+
+    def test_core_exposes_wire_functions(self):
+        self.assertTrue(callable(pk.request_tgt))
+        self.assertTrue(callable(pk.unpac_nthash))
+        self.assertTrue(callable(pk.parse_pem_bundle))
 
 
 class TestDerToolkit(unittest.TestCase):

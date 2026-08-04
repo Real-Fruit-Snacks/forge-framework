@@ -1,0 +1,11 @@
+dn: CN=ms-DS-Key-Credential-Link,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: add
+objectClass: attributeSchema
+lDAPDisplayName: msDSKeyCredentialLink
+adminDisplayName: ms-DS-Key-Credential-Link
+attributeID: 1.2.840.113556.1.4.2328
+attributeSyntax: 2.5.5.7
+oMSyntax: 127
+isSingleValued: FALSE
+searchFlags: 0
+showInAdvancedViewOnly: TRUE

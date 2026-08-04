@@ -1,0 +1,4 @@
+dn: CN=User,CN=Schema,CN=Configuration,DC=forge,DC=local
+changetype: modify
+add: mayContain
+mayContain: msDSKeyCredentialLink

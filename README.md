@@ -8,7 +8,7 @@ stdlib core, with docker lab targets and a full test suite.
 [![Version](https://img.shields.io/badge/version-0.5.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-542%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+[![Tests](https://img.shields.io/badge/tests-551%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
 
 </div>
 
@@ -30,18 +30,19 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **65 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
+- **66 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
   profiler with coercion annotation, PoC/vuln search), SMB and AD
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
   policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
   credential hunting over share contents, HTTP/SSH/SMB/Kerberos/LDAP/
   MSSQL/WinRM/SNMP brute force plus a store-driven multi-protocol sprayer (pass-the-hash, lockout circuit-breakers),
-  kerberoast (targeted mode too) + AS-REP roast, DCSync, golden ticket, S4U delegation abuse, PKINIT cert-to-TGT with UnPAC-the-hash,
-  pass-the-ticket, NTLM hash-bait + multi-method RPC coercion, SAM/LSA
-  dump, ESC1 cert
-  request, psexec-class SMB exec, atexec-class scheduled-task exec,
-  reverse-shell handler, and a payload set (bash, python, PHP, PowerShell,
-  shellcode, encoders)
+  kerberoast (targeted mode too) + AS-REP roast, DCSync, golden ticket,
+  S4U delegation abuse, PKINIT cert-to-TGT with UnPAC-the-hash, shadow
+  credentials (KeyCredentialLink plant), pass-the-ticket, NTLM hash-bait
+  + multi-method RPC coercion, SAM/LSA dump, ESC1 cert request,
+  psexec-class SMB exec, atexec-class scheduled-task exec, WinRM exec,
+  reverse-shell handler, and a payload set (bash, python, PHP,
+  PowerShell, shellcode, encoders)
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
@@ -52,7 +53,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **542 tests** — unit plus docker-gated integration running real modules
+- **551 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -86,7 +87,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- offensive-security framework
-+ -- --=[ 65 modules loaded
++ -- --=[ 66 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster

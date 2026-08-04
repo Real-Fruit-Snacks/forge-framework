@@ -314,3 +314,10 @@ never run both.
   here only through error handling — issuance needs a real Windows AD
   KDC. The pkinit module's e2e therefore asserts the clean refusal,
   not a TGT.
+- **Samba resolves attributes by lDAPDisplayName ONLY** — an LDAP write
+  addressed to the hyphenated CN form (`msDS-KeyCredentialLink`) fails
+  with "noSuchAttribute ... was not found in the schema" even though
+  the attributeSchema object is right there (Windows resolves both
+  names). Write `msDSKeyCredentialLink`. The ad lab carries the
+  attribute as a schema fixture (15-kcl-schema.add.ldif + User
+  mayContain), so shadow_creds plant/restore runs live.

