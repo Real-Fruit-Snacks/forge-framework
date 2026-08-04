@@ -3538,6 +3538,50 @@ class TestPkinitLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestPre2kLab(unittest.TestCase):
+    """pre2k_spray against the AD lab: the NT4WS$ fixture (password =
+    lowercase machine name) must be found; WS01$ (real password) must
+    NOT false-positive."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_finds_pre2000_account(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/login/pre2k_spray",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("NT4WS$:nt4ws", out)
+            self.assertNotIn("WS01$:", out.split("PRE-2000")[0])
+            self.assertNotIn("WS01$:ws01 — PRE-2000", out)
+            creds = console.store.creds()
+            self.assertTrue(any(c["username"] == "NT4WS$"
+                                and c["password"] == "nt4ws" for c in creds))
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestShadowCredsLab(unittest.TestCase):
     """shadow_creds against the AD lab: the fixture schema carries
     msDS-KeyCredentialLink, so the plant + restore are real. The TGT

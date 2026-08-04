@@ -17,6 +17,8 @@
 #                          RBCD target, password-in-description
 #   web_svc                kerberoastable, constrained delegation + T2A4D
 #   noauth                 DONT_REQUIRE_PREAUTH + PASSWD_NOTREQD
+#   NT4WS$                 pre-2000 machine account (password = lowercase
+#                          machine name — the pre2k fixture)
 #   10  noauth + krbtgt preauth flags (AS-REP roast, see the fixture)
 #   20  backup_svc/web_svc delegation attributes
 #   30  sql_svc$             gMSA (enumerable; no KDS key -> no password)
@@ -72,6 +74,12 @@ samba-tool user create backup_svc 'Backup2024!' \
 samba-tool user setexpiry --noexpiry backup_svc
 samba-tool spn add HTTP/web.forge.local backup_svc
 samba-tool user create noauth 'Noauth2024!'
+# NT4WS$: a pre-2000 machine account (password = lowercase machine name,
+# the pre2k trick). Needs complexity AND min-length off for the weak
+# password; both restored right after.
+samba-tool domain passwordsettings set --complexity=off --min-pwd-length=0
+samba-tool user create 'NT4WS$' 'nt4ws'
+samba-tool domain passwordsettings set --complexity=default --min-pwd-length=7
 samba-tool user create web_svc 'Web2024!'
 samba-tool user setexpiry --noexpiry web_svc
 samba-tool spn add HTTP/intranet.forge.local web_svc
