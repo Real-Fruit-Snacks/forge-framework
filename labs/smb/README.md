@@ -16,6 +16,10 @@ auth).
 3. `smb.conf` (in this dir): `security = user`, `map to guest = Bad User`,
    **`server signing = disabled`** (so modules see a relay-able target),
    two shares.
+4. `fixtures/` planted into `/shares/public/hunt/` — cred_hunt targets:
+   a web-prod config with a real connection-string password, an
+   unattend.xml autologon, an .env, a private key, and placeholder
+   decoys the FP filter must drop.
 4. Runs `smbd --foreground --debug-stdout --no-process-group`.
    Gotcha: the flag is `--debug-stdout`; `--log-stdout` is rejected and
    kills the container silently.

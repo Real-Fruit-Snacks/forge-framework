@@ -1162,6 +1162,66 @@ class TestHashBaitLab(unittest.TestCase):
         self.assertEqual(loot, [])
 
 
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestCredHuntLab(unittest.TestCase):
+    """cred_hunt against the smb lab's planted fixtures: real hits found,
+    placeholder decoys dropped."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("smb")
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                SMBConnection(HOST, HOST, sess_port=10445, timeout=2).close()
+                break
+            except Exception:
+                time.sleep(0.5)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("smb")
+
+    def test_fixture_hits_and_decoys(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/cred_hunt",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 10445",
+                    "set USERNAME labuser",
+                    "set PASSWORD labpass",
+                    "set SHARES public",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            # the four planted real hits
+            self.assertIn("private key block", out)
+            self.assertIn("r34lEnvS3cret!", out)
+            self.assertIn("unattend autologon password", out)
+            self.assertIn("D3ploy!Lab2024", out)
+            self.assertIn("Str0ng!DbPass99", out)
+            # decoys must NOT surface
+            self.assertNotIn("changeme", out)
+            self.assertNotIn("API_KEY_FROM_VAULT", out)
+            self.assertNotIn("DB_PASS}", out)
+            loot = console.store.loot("cred-hunt")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("CRITICAL", loot[0]["content"])
+        finally:
+            console.store.close()
+
+
 def up_ad_lab(manager, timeout=120):
     """Bring up the ad lab and wait for a REAL LDAP bind — docker-proxy
     accepts TCP connections the moment the container starts, long before

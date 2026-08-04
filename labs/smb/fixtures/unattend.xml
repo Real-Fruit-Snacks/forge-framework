@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup">
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <Username>deploy</Username>
+        <Password>
+          <Value>D3ploy!Lab2024</Value>
+        </Password>
+      </AutoLogon>
+    </component>
+  </settings>
+</unattend>

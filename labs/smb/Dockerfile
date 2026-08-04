@@ -14,6 +14,10 @@ RUN apt-get update \
     && (echo 'labpass'; echo 'labpass') | smbpasswd -a -s labuser \
     && chown labuser:labuser /shares/labuser
 
+# cred_hunt fixtures: real hits (config password, unattend autologon,
+# .env, private key) alongside placeholder decoys the FP filter must drop
+COPY fixtures/ /shares/public/hunt/
+
 COPY smb.conf /etc/samba/smb.conf
 
 EXPOSE 139 445
