@@ -61,6 +61,22 @@ class TestAsReqBuilder(unittest.TestCase):
                          ["krbtgt", "forge.local"])
 
 
+class TestTargetedHelpers(unittest.TestCase):
+    def test_throwaway_spn_shape(self):
+        import re
+        for _ in range(20):
+            spn = kb.throwaway_spn("forge.local")
+            self.assertRegex(spn, r"^fzr/[a-z0-9]{8}\.forge\.local$")
+
+    def test_spn_add_del_ops_are_value_specific(self):
+        add = kb.spn_add_ops("fzr/abc12345.forge.local")
+        self.assertEqual(add, {"servicePrincipalName":
+                               [(0, ["fzr/abc12345.forge.local"])]})
+        delete = kb.spn_del_ops("fzr/abc12345.forge.local")
+        self.assertEqual(delete, {"servicePrincipalName":
+                                  [(1, ["fzr/abc12345.forge.local"])]})
+
+
 class TestRequirements(unittest.TestCase):
     def test_declares_impacket(self):
         self.assertIn("impacket", kb.Kerberoast.requirements)

