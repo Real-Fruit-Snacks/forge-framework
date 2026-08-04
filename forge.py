@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forge — personal CTF/pentest framework. Entry point.
+"""Forge — modular offensive-security framework. Entry point.
 
     forge                           interactive console (if pip-installed)
     ./forge.py                      same, straight from the repo
@@ -61,7 +61,7 @@ def bundled_dirs():
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Forge — personal CTF/pentest framework")
+    parser = argparse.ArgumentParser(description="Forge — modular offensive-security framework")
     parser.add_argument(
         "-x", "--exec", metavar="CMDS",
         help="run commands (separated by ';'), then stay interactive if on a tty",

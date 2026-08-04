@@ -84,7 +84,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  | |_ | | | | |_) | |  _|  _|
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
-       forge v0.5 -- personal CTF/pentest framework
+       forge v0.5 -- offensive-security framework
 + -- --=[ 62 modules loaded
 
 forge > lab up web

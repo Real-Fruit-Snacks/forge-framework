@@ -92,7 +92,7 @@ class FrameworkConsole(cmd.Cmd):
     def print_banner(self) -> None:
         output.print_line(output.style(BANNER.rstrip("\n"), output.ACCENT, bold=True))
         output.print_line(output.style(
-            "       forge v0.5 -- personal CTF/pentest framework",
+            "       forge v0.5 -- offensive-security framework",
             output.ACCENT, bold=True,
         ))
         output.print_line(output.style(
