@@ -277,6 +277,10 @@ class TestSshLab(unittest.TestCase):
 def paramiko_available():
     return importlib.util.find_spec("paramiko") is not None
 
+
+def pywinrm_available():
+    return importlib.util.find_spec("winrm") is not None
+
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(paramiko_available(), "paramiko not installed")
 class TestSshLoginLab(unittest.TestCase):
@@ -946,6 +950,94 @@ class TestWinrmLoginLab(unittest.TestCase):
         self.assertIn("evil-winrm", out)
         self.assertEqual(len(creds), 1)
         self.assertEqual(creds[0]["service"], "winrm")
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(pywinrm_available(), "pywinrm not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestWinrmExecLab(unittest.TestCase):
+    """winrm_exec against the windows lab's WinRM (15985): real command
+    execution over /wsman, cmd and PowerShell, output looted."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        # same protocol-level readiness as winrm_login's class: the port
+        # proxy answers long before the WinRM service inside Windows does
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                with socket.create_connection((HOST, 15985), timeout=3) as s:
+                    s.sendall(b"GET /wsman HTTP/1.0\r\n\r\n")
+                    if s.recv(64).startswith(b"HTTP/"):
+                        break
+            except OSError:
+                pass
+            time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab WinRM not up within 300s")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    def _run(self, *commands):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+            return (buf.getvalue(), console.store.loot("exec"),
+                    console.store.creds())
+        finally:
+            console.store.close()
+
+    def test_cmd_exec_and_loot(self):
+        out, loot, creds = self._run(
+            "use exploits/windows/winrm_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15985",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "set COMMAND whoami",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("labadmin", out.lower())
+        self.assertEqual(len(loot), 1)
+        self.assertIn("labadmin", loot[0]["content"].lower())
+        self.assertTrue(any(c["service"] == "winrm" for c in creds))
+
+    def test_powershell_exec(self):
+        out, _loot, _creds = self._run(
+            "use exploits/windows/winrm_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15985",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "set SHELL powershell",
+            "set COMMAND $PSVersionTable.PSVersion.Major",
+            "run",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"\b5\b|\b7\b")
+
+    def test_check_reports_session(self):
+        out, _loot, _creds = self._run(
+            "use exploits/windows/winrm_exec",
+            f"set RHOSTS {HOST}",
+            "set RPORT 15985",
+            "set USERNAME labadmin",
+            "set PASSWORD Labpass2024!",
+            "check",
+        )
+        self.assertNotIn("Traceback", out)
+        self.assertIn("WinRM session works as", out)
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
