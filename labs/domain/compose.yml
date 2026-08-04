@@ -31,11 +31,23 @@ services:
       - "127.0.0.1:88:88"
       - "127.0.0.1:88:88/udp"   # Kerberos is UDP-first
       - "127.0.0.1:445:445"
+      - "127.0.0.1:15353:53"     # DNS for dns_recon / CA name resolution
+      - "127.0.0.1:15353:53/udp"
       - "127.0.0.1:49152-49160:49152-49160"  # pinned dynamic RPC range
     volumes:
       # provisioned domain state persists — second boots are fast AND the
       # domain SID survives, so the member's trust relationship does too
       - dc-state:/var/lib/samba
+    # Windows boxes must not start until Samba actually answers LDAP:
+    # AD CS binds AD at certsvc startup and serves 0x80070576 ("could
+    # not find required AD information") for minutes when it loses that
+    # race. member/ca wait on this healthcheck.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/389'"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
 
   member:
     image: dockurr/windows
@@ -57,7 +69,8 @@ services:
     networks:
       - domain
     depends_on:
-      - dc
+      dc:
+        condition: service_healthy
     ports:
       - "127.0.0.1:3445:445"    # member SMB (impacket targets)
       - "127.0.0.1:33389:3389"  # RDP
@@ -69,6 +82,37 @@ services:
       - ./oem:/oem
     stop_grace_period: 2m
 
+  ca:
+    image: dockurr/windows
+    environment:
+      VERSION: "2022"
+      USERNAME: "labadmin"
+      PASSWORD: "Labpass2024!"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "32G"
+    devices:
+      - /dev/kvm
+    cap_add:
+      - NET_ADMIN
+    dns:
+      - 10.10.10.10
+    networks:
+      - domain
+    depends_on:
+      dc:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4445:445"    # CA SMB / cert pipe targets
+      - "127.0.0.1:8009:8006"   # noVNC
+    volumes:
+      - ca-data:/storage
+      # joins FORGE.LOCAL, installs AD CS as an Enterprise Root CA, and
+      # publishes the VulnWeb ESC1 template (see oem-ca/ca.ps1)
+      - ./oem-ca:/oem
+    stop_grace_period: 2m
+
 volumes:
   member-data:
   dc-state:
+  ca-data:

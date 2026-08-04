@@ -33,7 +33,7 @@ rebuilds occasionally with `docker image prune`.
 | `ad` | `127.0.0.1:389` + `88` + `445` + `135` + `15353` (DNS) | AD enumeration + DCSync (real DC, FORGE.LOCAL) | `Administrator:P@ssw0rd123`, `analyst:Summer2024!`, kerberoastable `backup_svc` + `web_svc`, delegation fixtures (unconstrained/constrained/RBCD) |
 | `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP), `15985` (WinRM) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `workstation` | `127.0.0.1:2445` (SMB), `23389` (RDP) | Windows 11 client — the foothold box | `labadmin:Labpass2024!`; first boot installs (~20 min) |
-| `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL | DC creds as `ad`; member `labadmin:Labpass2024!` |
+| `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP); CA: `4445` (SMB/cert pipe) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL + a Windows Server **Enterprise CA** (esc1) | DC creds as `ad`; member `labadmin:Labpass2024!` |
 | `mssql` | `127.0.0.1:11433` | TDS auth (mssql_login) | `sa:For9e_SQL!2024`; image is ~1.5 GB — purge when done |
 | `snmp` | `127.0.0.1:10161` (udp) | community spray (snmp_login) | `private-lab`; everything else gets silence, like a real agent |
 
@@ -259,3 +259,51 @@ never run both.
   sAMAccountName search not assumed. Also: creating machine accounts
   needs admin on Samba (no ms-DS-MachineAccountQuota=10 default like
   Windows) — analyst gets "doesn't have the right", Administrator works.
+- **Server 2022's netlogon is the opposite of Win11's vs Samba** — the
+  Win11 RC4 relax (RequireStrongKey/SignOrSeal/Seal/Sign = 0) breaks
+  2022's secure channel AT BIRTH; every domain logon then fails with
+  "trust relationship failed". 2022 wants all four = 1 plus a
+  post-join `Reset-ComputerMachinePassword`. The domain lab's member
+  keeps the relax, the CA gets the strong set — same DC, opposite
+  recipes.
+- **A template the CA can't read is "Invalid Template"** — without an
+  Authenticated-Users read ACE on the template's SD,
+  `certutil -SetCATemplates +X` fails with "Element not found
+  0x80070490 / Invalid Template". It's a visibility error, not a
+  schema one; bisecting attribute-by-attribute is a waste of time until
+  the SD is proven (compare against a template that publishes).
+- **"Not supported by the AD CS policy" at enrollment can mean missing
+  msPKI-Template-Schema-Version** — the template publishes fine but the
+  policy module denies every request (CERTSRV_E_UNSUPPORTED_TEMPLATE,
+  0x80094800). Set schema-version 1 (v1 template, same class as the
+  stock Web Server template); schema-version 2 without the full v2
+  apparatus fails publish-time validation instead.
+- **certsvc caches templates — restart after EVERY change** (publish,
+  attribute edit, SD edit), or enrollment sees the stale object. And
+  `msPKI-Enrollment-Flag` bit 0x2 is CT_FLAG_PEND_ALL_REQUESTS:
+  requests come back disposition 5 (pending) instead of issuing — ESC1
+  needs auto-issuance, so the lab template uses 0.
+- **Server 2022's cert pipe requires packet privacy** — the ICPR bind
+  must `set_auth_level(PKT_PRIVACY)` + `set_credentials` or the request
+  fails with Win32 1746 ("binding does not contain any authentication
+  information"), even over an authenticated SMB session.
+- **The CA can silently drop a requested SAN** — a `SAN:upn=` request
+  attribute alone got ignored (issued cert had no SAN at all) until the
+  UPN also rode inside the CSR as an OtherName extension
+  (1.3.6.1.4.1.311.20.2.3). esc1 sends both and verifies the SAN is in
+  the issued cert before claiming the win.
+- **0x80070576 is ERROR_TIME_SKEW, not a missing-DC error** — the
+  message "could not find required Active Directory information" is a
+  red herring; the event log says it plainly ("time and/or date
+  difference between the client and server"). The QEMU RTC is seeded
+  from host-local time while the Windows image uses a US Pacific
+  timezone, so the guest's UTC is hours off the DC's and certsvc's
+  policy module denies every request. Never patch it with
+  `Set-Date (Get-Date).ToUniversalTime()` — on a non-UTC guest that
+  writes the TZ offset INTO the RTC and poisons every later boot.
+  The lab's ForgeLabTimeSync boot task pins the guest to UTC and takes
+  the clock from the DC's net time on every boot.
+- **ad-state (and dc-state) persist Samba's database across runs** — a
+  test that creates a machine account and dies before the delete leaves
+  residue that fails the NEXT run with STATUS_USER_EXISTS. Lab tests
+  that create objects clean up in setUpClass, not just at the end.

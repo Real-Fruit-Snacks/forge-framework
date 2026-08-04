@@ -38,7 +38,17 @@ def rand_machine_name():
 
 
 def rand_password(length=16):
-    return "".join(random.choice(PASSWORD_ALPHABET) for _ in range(length))
+    """Complexity-proof machine password. AD/Samba require 3 of 4
+    character classes (upper, lower, digit, symbol) — a uniform draw
+    from the alphabet misses often enough to flake (~6% at length 16),
+    so seed one char from every class and shuffle."""
+    pools = (string.ascii_uppercase, string.ascii_lowercase,
+             string.digits, "!#$%")
+    chars = [random.choice(pool) for pool in pools]
+    chars += [random.choice(PASSWORD_ALPHABET)
+              for _ in range(max(0, length - len(chars)))]
+    random.shuffle(chars)
+    return "".join(chars)
 
 
 class AddComputer(AuxiliaryModule):

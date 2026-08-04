@@ -41,8 +41,7 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- ADCS stage: a real CA in the domain lab so ESC1-8 goes from template
-  enum to exploitation
+- PKINIT: cert -> TGT (closes the ESC1 chain against the domain CA)
 - more encoders (hex, badchar-aware shellcode transforms)
 - pwntools exploit helpers (cyclic, ROP chains) for pwn work
 - C2-style session channels

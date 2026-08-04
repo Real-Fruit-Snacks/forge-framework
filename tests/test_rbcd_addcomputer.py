@@ -33,10 +33,18 @@ class TestAddComputerHelpers(unittest.TestCase):
             self.assertTrue(name[2:-1].isupper())
 
     def test_password_shape(self):
+        import string
         for _ in range(20):
             pw = ac.rand_password()
             self.assertEqual(len(pw), 16)
             self.assertTrue(all(c in ac.PASSWORD_ALPHABET for c in pw))
+            # AD/Samba complexity: 3 of 4 classes — the generator seeds
+            # all four, so this must hold for EVERY draw
+            classes = [any(c in string.ascii_uppercase for c in pw),
+                       any(c in string.ascii_lowercase for c in pw),
+                       any(c in string.digits for c in pw),
+                       any(c in "!#$%" for c in pw)]
+            self.assertGreaterEqual(sum(classes), 3)
 
 
 class TestRbcdHelpers(unittest.TestCase):
