@@ -7,10 +7,16 @@ are recorded in `errors` instead of killing the framework.
 Multiple roots are merged in order: later roots override earlier ones on
 path collision. The framework passes [bundled modules, user modules], so
 your ~/.framework/modules copy of a module shadows the bundled one.
+
+Roots can also live INSIDE a zip (the pyz single-file build): when a
+root isn't a real directory, it's treated as a package and enumerated
+via pkgutil (zipimport), loading by dotted name instead of file path.
 """
 
+import importlib
 import importlib.util
 import inspect
+import pkgutil
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Type, Union
@@ -33,21 +39,48 @@ class ModuleRegistry:
         self.modules.clear()
         self.errors.clear()
         for root in self.roots:
-            if not root.is_dir():
+            if root.is_dir():
+                self._load_tree(root)
+            else:
+                self._load_zip(root)
+
+    def _load_tree(self, root: Path) -> None:
+        for py_file in sorted(root.rglob("*.py")):
+            if py_file.name.startswith("_"):
                 continue
-            for py_file in sorted(root.rglob("*.py")):
-                if py_file.name.startswith("_"):
-                    continue
-                rel = py_file.relative_to(root).with_suffix("")
-                path = "/".join(rel.parts)
-                try:
-                    self.modules[path] = self._load_file(py_file, path)
-                    self.errors.pop(path, None)
-                except Exception:
-                    self.errors[path] = traceback.format_exc().rstrip()
-                    log.get().error(
-                        "module load failed: %s\n%s", path, self.errors[path]
-                    )
+            rel = py_file.relative_to(root).with_suffix("")
+            path = "/".join(rel.parts)
+            try:
+                self.modules[path] = self._load_file(py_file, path)
+                self.errors.pop(path, None)
+            except Exception:
+                self.errors[path] = traceback.format_exc().rstrip()
+                log.get().error(
+                    "module load failed: %s\n%s", path, self.errors[path]
+                )
+
+    def _load_zip(self, root: Path) -> None:
+        """Modules inside a zip: enumerate via pkgutil's zipimporter and
+        load by dotted module name."""
+        package = root.name  # e.g. 'modules' inside forge.pyz
+        try:
+            pkg = importlib.import_module(package)
+        except ImportError:
+            return
+        for info in pkgutil.walk_packages(pkg.__path__, f"{package}."):
+            if info.ispkg:
+                continue  # package __init__.py, not a module
+            if info.name.rsplit(".", 1)[-1].startswith("_"):
+                continue
+            path = "/".join(info.name[len(package) + 1:].split("."))
+            try:
+                self.modules[path] = self._load_dotted(info.name, path)
+                self.errors.pop(path, None)
+            except Exception:
+                self.errors[path] = traceback.format_exc().rstrip()
+                log.get().error(
+                    "module load failed (zip): %s\n%s", path, self.errors[path]
+                )
 
     def _load_file(self, py_file: Path, path: str) -> Type[BaseModule]:
         module_name = "framework_modules." + path.replace("/", ".")
@@ -61,6 +94,13 @@ class ModuleRegistry:
             if issubclass(cls, BaseModule) and cls.__module__ == module_name:
                 return cls
         raise ValueError(f"no BaseModule subclass defined in {py_file}")
+
+    def _load_dotted(self, dotted: str, path: str) -> Type[BaseModule]:
+        mod = importlib.import_module(dotted)
+        for _, cls in inspect.getmembers(mod, inspect.isclass):
+            if issubclass(cls, BaseModule) and cls.__module__ == dotted:
+                return cls
+        raise ValueError(f"no BaseModule subclass defined in {dotted}")
 
     def get(self, path: str) -> Optional[Type[BaseModule]]:
         return self.modules.get(path)

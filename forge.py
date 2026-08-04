@@ -47,13 +47,17 @@ def framework_home() -> Path:
 
 
 def bundled_dirs():
-    """Locate bundled modules/ and labs/: repo layout (dev) first, then
-    the installed share/forge/ layout (pipx/pip installs)."""
+    """Locate bundled modules/ and labs/: repo layout (dev) first, the
+    installed share/forge/ layout (pipx/pip installs) next, the in-pyz
+    package layout (single-file builds) last."""
     here = Path(__file__).resolve().parent
     if (here / "modules").is_dir():
         return here / "modules", here / "labs"
     share = Path(sys.prefix) / "share" / "forge"
-    return share / "modules", share / "labs"
+    if (share / "modules").is_dir():
+        return share / "modules", share / "labs"
+    # inside a zip: not real dirs — the registry's zip branch handles it
+    return here / "modules", here / "labs"
 
 
 def main() -> None:

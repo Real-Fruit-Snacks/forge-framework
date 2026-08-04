@@ -4,6 +4,7 @@
 
 ```
 forge.py        entry point (also the pip console-script target)
+build.py        single-file builds: forge.pyz with module presets/subsets
 pyproject.toml      packaging (pip install -e . → `framework`)
 core/               the engine room (see [[Core-Architecture]])
 modules/            bundled modules: <type>/<category>/<name>.py
@@ -40,8 +41,8 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- AD growth path on `ad_enum` + the `ad` lab: kerberoast TGS extraction
-  (impacket GetUserSPNs), AS-REP roasting, delegation enumeration, ADCS
+- ADCS stage: a real CA in the domain lab so ESC1-8 goes from template
+  enum to exploitation
 - more encoders (hex, badchar-aware shellcode transforms)
 - pwntools exploit helpers (cyclic, ROP chains) for pwn work
 - C2-style session channels

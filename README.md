@@ -49,7 +49,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **501 tests** — unit plus docker-gated integration running real modules
+- **505 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -65,6 +65,15 @@ Or from the repo (stdlib only, no install needed):
 git clone https://github.com/Real-Fruit-Snacks/forge-framework
 cd forge-framework
 ./forge.py
+```
+
+Or as one executable file for a jump host (no pip, no venv — python3
+only; impacket-class modules report their missing requirement cleanly):
+
+```bash
+python3 build.py              # full framework -> forge.pyz
+python3 build.py --preset ad  # the AD/SMB toolkit only
+./forge.pyz
 ```
 
 ```
