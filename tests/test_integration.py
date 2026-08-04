@@ -3682,6 +3682,79 @@ class TestPkinitLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestBloodhoundLab(unittest.TestCase):
+    """bloodhound collector against the AD lab: all four CE JSON docs
+    in loot, fixture accounts present, membership edges resolved."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_collects_graph_skeleton(self):
+        import json
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/enum/bloodhound",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            loot = console.store.loot("bloodhound")
+            self.assertEqual(len(loot), 4)
+            docs = {l["label"].split(".json")[0]: json.loads(l["content"])
+                    for l in loot}
+            for kind in ("users", "groups", "computers", "domains"):
+                self.assertIn(kind, docs)
+                self.assertEqual(docs[kind]["meta"]["version"], 5)
+
+            users = docs["users"]["data"]
+            names = {u["Properties"]["samaccountname"] for u in users}
+            for expected in ("analyst", "backup_svc", "web_svc", "NT4WS$"):
+                self.assertIn(expected, names)
+            analyst = next(u for u in users
+                           if u["Properties"]["samaccountname"] == "analyst")
+            self.assertTrue(analyst["ObjectIdentifier"].startswith("S-1-5-21-"))
+            self.assertTrue(analyst["IsEnabled"])
+            self.assertEqual(analyst["Aces"], [])
+            # roast surface: backup_svc carries its SPN
+            backup = next(u for u in users
+                          if u["Properties"]["samaccountname"] == "backup_svc")
+            self.assertIn("HTTP/web.forge.local",
+                          backup["ServicePrincipalNames"])
+
+            groups = docs["groups"]["data"]
+            helpdesk = next(g for g in groups
+                            if g["Properties"]["samaccountname"] == "Helpdesk")
+            member_sids = {m["ObjectIdentifier"] for m in helpdesk["Members"]}
+            self.assertIn(analyst["ObjectIdentifier"], member_sids)
+
+            computers = docs["computers"]["data"]
+            comp_names = {c["Properties"]["samaccountname"] for c in computers}
+            self.assertIn("WS01$", comp_names)
+
+            domain = docs["domains"]["data"][0]
+            self.assertEqual(domain["Properties"]["name"], "FORGE.LOCAL")
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestPre2kLab(unittest.TestCase):
     """pre2k_spray against the AD lab: the NT4WS$ fixture (password =
     lowercase machine name) must be found; WS01$ (real password) must

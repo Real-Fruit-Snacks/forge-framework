@@ -8,7 +8,7 @@ stdlib core, with docker lab targets and a full test suite.
 [![Version](https://img.shields.io/badge/version-0.5.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-565%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+[![Tests](https://img.shields.io/badge/tests-572%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
 
 </div>
 
@@ -30,7 +30,7 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **68 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
+- **69 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
   profiler with coercion annotation, PoC/vuln search), SMB and AD
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
   policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
@@ -53,7 +53,7 @@ and one command exports an engagement report.
   checks, automatic teardown on exit, janitor (`lab clean`) and full
   reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **565 tests** — unit plus docker-gated integration running real modules
+- **572 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Quick start
@@ -87,7 +87,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- offensive-security framework
-+ -- --=[ 68 modules loaded
++ -- --=[ 69 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster
