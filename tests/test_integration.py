@@ -3473,6 +3473,71 @@ class TestHostPackLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestPkinitLab(unittest.TestCase):
+    """pkinit against the AD lab: Debian's Samba 4.17 KDC ships without
+    PKINIT (binary scan has no pkinit symbols), so the lab can only
+    prove the module's wire path and error handling — a well-formed
+    PA-PK-AS-REQ goes out and the KDC's refusal is reported cleanly.
+    Issuance is verified structurally (unit tests: CMS signature,
+    DHRepInfo parse, KDF) and against real Windows AD in the field."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_kdc_refusal_reports_cleanly(self):
+        import datetime
+        import tempfile
+        from cryptography import x509 as cx509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = cx509.Name([cx509.NameAttribute(NameOID.COMMON_NAME, "analyst")])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (cx509.CertificateBuilder()
+                .subject_name(name).issuer_name(name)
+                .public_key(key.public_key()).serial_number(1)
+                .not_valid_before(now)
+                .not_valid_after(now + datetime.timedelta(days=1))
+                .sign(key, hashes.SHA256()))
+        pem = (cert.public_bytes(serialization.Encoding.PEM) +
+               key.private_bytes(serialization.Encoding.PEM,
+                                 serialization.PrivateFormat.PKCS8,
+                                 serialization.NoEncryption()))
+        with tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as f:
+            f.write(pem)
+            pem_path = f.name
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/pkinit",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME analyst",
+                    f"set CERTFILE {pem_path}",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("requesting TGT for analyst via PKINIT", out)
+            self.assertIn("PKINIT request failed", out)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestCoerceLab(unittest.TestCase):
     """coerce against the windows lab's Server 2022: the classic methods

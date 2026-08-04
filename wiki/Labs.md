@@ -307,3 +307,10 @@ never run both.
   test that creates a machine account and dies before the delete leaves
   residue that fails the NEXT run with STATUS_USER_EXISTS. Lab tests
   that create objects clean up in setUpClass, not just at the end.
+- **Debian's Samba KDC has no PKINIT** — the 4.17 samba-ad-dc build
+  ships with zero pkinit/pk-as-req symbols in its KDC binaries (checked
+  with a strings scan), and `kdc enable pkinit` isn't a parameter it
+  knows. Cert-auth attacks (pkinit, shadow credentials) are provable
+  here only through error handling — issuance needs a real Windows AD
+  KDC. The pkinit module's e2e therefore asserts the clean refusal,
+  not a TGT.
