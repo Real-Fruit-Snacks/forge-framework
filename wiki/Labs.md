@@ -259,6 +259,14 @@ never run both.
   sAMAccountName search not assumed. Also: creating machine accounts
   needs admin on Samba (no ms-DS-MachineAccountQuota=10 default like
   Windows) — analyst gets "doesn't have the right", Administrator works.
+- **Samba's LSA can't do secret reads the Windows way** — LsarOpenSecret
+  /LsarQuerySecret on `G$*` names fail with nca_s_op_rng_error (or
+  STATUS_NO_USER_SESSION_KEY: Samba's LSA doesn't link the SMB session
+  key at all, signing or not). The BCKUPKEY private key instead comes
+  via DRSUAPI EXOP_REPL_OBJ, wrapped with the DRS bind's own gensec
+  session key (RC4 over md5(key + 16-byte confounder), crc32-checked —
+  see libcli/drsuapi/repl_decrypt.c). It is NOT the Windows pekList
+  scheme, and the LDAP currentValue stays confidential either way.
 - **Server 2022's netlogon is the opposite of Win11's vs Samba** — the
   Win11 RC4 relax (RequireStrongKey/SignOrSeal/Seal/Sign = 0) breaks
   2022's secure channel AT BIRTH; every domain logon then fails with

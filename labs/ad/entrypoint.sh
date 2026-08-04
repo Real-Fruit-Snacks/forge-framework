@@ -116,6 +116,11 @@ chmod -R a+rX "$GPP_DIR"
 # DRSUAPI (DCSync) speaks ncacn_ip_tcp only: endpoint mapper on 135, then
 # a dynamic RPC port. Pin the range so compose can publish it 1:1.
 sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/samba/smb.conf
+# LSA secret reads (dpapi_backupkey) need a session key on the session,
+# and Samba only tracks one over SIGNED sessions. Windows Server 2022
+# defaults to signing-required for the same reason dploot's NTLM path
+# works there — match it.
+sed -i '/^\[global\]/a \   server signing = required' /etc/samba/smb.conf
 # when the DC is a lab's DNS server (domain lab), it must also resolve
 # the outside world — members download things through it
 sed -i '/^\[global\]/a \   dns forwarder = 8.8.8.8' /etc/samba/smb.conf

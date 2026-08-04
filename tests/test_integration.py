@@ -3799,6 +3799,60 @@ class TestPre2kLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestDpapiBackupKeyLab(unittest.TestCase):
+    """dpapi_backupkey against the AD lab: BKRP cert + the private key
+    via DRSUAPI replication (Samba's LSA can't do it), verified pair."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        up_ad_lab(cls.manager)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("ad")
+
+    def test_backup_key_pair(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/dpapi_backupkey",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("backup key cert:", out)
+            self.assertIn("private key verified against the backup "
+                          "cert (RSA-2048)", out)
+            loot = console.store.loot("dpapi-backupkey")
+            self.assertEqual(len(loot), 1)
+            self.assertIn("BEGIN CERTIFICATE", loot[0]["content"])
+            self.assertIn("PRIVATE KEY", loot[0]["content"])
+            # and the pair really matches: the looted private key's
+            # public numbers equal the looted cert's
+            from cryptography import x509 as cx509
+            cert = cx509.load_pem_x509_certificate(
+                loot[0]["content"].encode())
+            from Cryptodome.PublicKey import RSA
+            key_pem = loot[0]["content"][
+                loot[0]["content"].index("-----BEGIN RSA PRIVATE KEY-----"):]
+            key = RSA.import_key(key_pem.encode())
+            self.assertEqual(key.n, cert.public_key().public_numbers().n)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestShadowCredsLab(unittest.TestCase):
     """shadow_creds against the AD lab: the fixture schema carries
     msDS-KeyCredentialLink, so the plant + restore are real. The TGT
