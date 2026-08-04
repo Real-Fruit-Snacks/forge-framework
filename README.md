@@ -2,13 +2,13 @@
 
 # Forge
 
-A personal, Metasploit-style CTF/pentest framework — pure Python, stdlib core,
-with docker lab targets and a full test suite.
+A modular, Metasploit-style offensive-security framework — pure Python,
+stdlib core, with docker lab targets and a full test suite.
 
 [![Version](https://img.shields.io/badge/version-0.5.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-184%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+[![Tests](https://img.shields.io/badge/tests-513%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
 
 </div>
 
@@ -18,8 +18,9 @@ Forge is a modular offensive-security framework built the way Metasploit is
 organized — `use` a module, `set` options, `run` it — but small enough to read
 end-to-end and honest about what it does. Everything is tested against real
 services: the framework ships its own docker lab targets (web app, SSH server,
-Samba SMB, a Samba AD domain controller, and a full Windows Server VM), and
-every module is exercised against them.
+Samba SMB, a Samba AD domain controller, Windows Server 2022 and Windows 11
+VMs, and a full mini-domain with an AD CS Enterprise CA), and every module is
+exercised against them.
 
 Findings compound: scans write to a persistent workspace (hosts, services,
 credentials, loot), login modules try stored credentials before wordlists,
