@@ -30,7 +30,7 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **62 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
+- **63 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
   profiler with coercion annotation, PoC/vuln search), SMB and AD
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
   policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
@@ -85,7 +85,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.5 -- offensive-security framework
-+ -- --=[ 62 modules loaded
++ -- --=[ 63 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster
