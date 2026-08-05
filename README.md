@@ -30,22 +30,7 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **73 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
-  profiler with coercion annotation, PoC/vuln search), SMB/AD/MSSQL
-  enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
-  policies, misconfigs, raw LDAP, wire-format DNS, BloodHound CE
-  collection), credential hunting over share contents, HTTP/SSH/SMB/
-  Kerberos/LDAP/MSSQL/WinRM/SNMP brute force plus a store-driven
-  multi-protocol sprayer (pass-the-hash, lockout circuit-breakers),
-  kerberoast (targeted mode too) + AS-REP roast + pre-2000 spray,
-  DCSync, golden ticket, S4U delegation abuse, PKINIT cert-to-TGT with
-  UnPAC-the-hash, shadow credentials (KeyCredentialLink plant),
-  ESC1/ESC4 certificate abuse, DPAPI domain backup key, pass-the-ticket,
-  NTLM hash-bait + multi-method RPC coercion + NetNTLMv2 capture,
-  SAM/LSA dump, psexec-class SMB exec, atexec-class scheduled-task exec,
-  WinRM exec, MSSQL exec with linked-server pivots, reverse-shell
-  handler, and a payload set (bash, python, PHP, PowerShell, shellcode,
-  encoders)
+- **73 modules** — full inventory below
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
@@ -58,6 +43,19 @@ and one command exports an engagement report.
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
 - **590 tests** — unit plus docker-gated integration running real modules
   against real labs
+
+## Modules
+
+| Area | What it covers |
+|---|---|
+| Scanners | port, HTTP, recursive dir buster, unauth AD profiler with coercion annotation, PoC/vuln search |
+| Enumeration | SMB/AD/MSSQL (users, groups, delegation, descriptions, gMSA, LAPS, policies, misconfigs, raw LDAP, wire-format DNS, BloodHound CE collection), credential hunting over share contents |
+| Brute force | HTTP/SSH/SMB/Kerberos/LDAP/MSSQL/WinRM/SNMP logins, store-driven multi-protocol sprayer (pass-the-hash, lockout circuit-breakers) |
+| AD attacks | kerberoast (+targeted mode), AS-REP roast, pre-2000 machine spray, DCSync, golden ticket, S4U delegation abuse, RBCD, add_computer, PKINIT cert-to-TGT with UnPAC-the-hash, shadow credentials |
+| Certificate abuse | ESC1 (enrollee-supplied SAN), ESC4 (writable-template surgery), DPAPI domain backup key |
+| Coercion & capture | NTLM hash bait, multi-method RPC coercion, NetNTLMv2 capture server |
+| Exec | psexec-class SMB, atexec-class scheduled task, WinRM, MSSQL with linked-server pivots |
+| Shells & payloads | reverse-shell handler, bash/python/PHP/PowerShell one-liners, shellcode, encoders |
 
 ## Quick start
 
