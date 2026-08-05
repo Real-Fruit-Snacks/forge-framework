@@ -192,17 +192,25 @@ never run both.
   lifted from a decoded TGS-REP keeps its outer tag and produces garbage
   DER (the KDC drops the connection mid-request).
 - **SCMR command exec only works as the smbexec echo-chain** (verified
-  against the windows lab): `cmd /c bat > localfile` constructions get
-  the service tree reaped before the output flushes (instant 1053, empty
-  file). The chain that works: service cmd echoes the payload into a
-  .bat with ^-escaped redirects, runs the bat, deletes it; output goes
-  to a UNC path on the target's own ADMIN$ (the SMB redirector commits
-  the bytes even when the SCM kills the tree). ERROR_SERVICE_REQUEST_
-  TIMEOUT (1053) on StartServiceW is the NORMAL path — cmd.exe never
-  talks to the dispatcher. Also: cmd's `>` writes UTF-16-LE for builtins
-  but console apps write ANSI (sniff BOM/NUL-pattern, don't guess), and
-  impacket's putFile callback must return empty bytes at EOF or the
-  upload loop never ends.
+  against the windows lab AND the domain lab's CA): service cmd echoes
+  the payload into a .bat with ^-escaped redirects and runs the bat;
+  output goes to a UNC path on the target's own ADMIN$ (the SMB
+  redirector commits the bytes even when the SCM kills the tree, and
+  loopback ADMIN$ accepts SYSTEM on domain-joined servers too).
+  ERROR_SERVICE_REQUEST_TIMEOUT (1053) on StartServiceW is the NORMAL
+  path — cmd.exe never talks to the dispatcher. Two silent killers,
+  both verified live on stock Server 2022: (1) the bat must NOT be
+  deleted by the chain or by itself — the create/run/delete sequence
+  trips behavioral script blocking and the service dies with no output
+  and no artifacts; the module deletes the bat over SMB afterwards
+  instead (the windows lab's tamed Defender tolerates the self-delete,
+  the domain CA's does not); (2) never aim two redirect paths at the
+  same file (local `C:\Windows\Temp\x` and its `\\127.0.0.1\ADMIN$`
+  twin) — a follow-up `type x > x` copy opens the file for writing
+  while reading it and truncates the capture to zero bytes. Also:
+  cmd's `>` writes UTF-16-LE for builtins but console apps write ANSI
+  (sniff BOM/NUL-pattern, don't guess), and impacket's putFile callback
+  must return empty bytes at EOF or the upload loop never ends.
 - **Ticket loot is CCACHE, never raw KDC-REP bytes** — a consumed TGT
   needs its session key, which bare AS-REP/TGS-REP bytes don't carry.
   ccache stores both (and every external tool reads it via KRB5CCNAME).

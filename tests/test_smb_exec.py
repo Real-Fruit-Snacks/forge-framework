@@ -22,12 +22,15 @@ class TestChainBuilder(unittest.TestCase):
     def test_chain_shape(self):
         chain = sx.build_exec_chain("whoami", r"%SYSTEMROOT%\Temp\x.bat",
                                     r"\\127.0.0.1\ADMIN$\Temp\o.txt")
-        # echo into bat, escaped redirects, run bat, delete bat
+        # echo into bat, escaped UNC redirect, run bat. NO self-delete in
+        # the chain — that trips behavioral script blocking on stock
+        # Server 2022; the module cleans up over SMB afterwards
         self.assertTrue(chain.startswith("%COMSPEC% /Q /c echo whoami "))
         self.assertIn(r"^> \\127.0.0.1\ADMIN$\Temp\o.txt 2^>^&1 > "
                       r"%SYSTEMROOT%\Temp\x.bat", chain)
-        self.assertIn(r"& %COMSPEC% /Q /c %SYSTEMROOT%\Temp\x.bat", chain)
-        self.assertTrue(chain.endswith(r"& del %SYSTEMROOT%\Temp\x.bat"))
+        self.assertTrue(chain.endswith(
+            r"& %COMSPEC% /Q /c %SYSTEMROOT%\Temp\x.bat"))
+        self.assertNotIn("del ", chain)
 
 
 class TestNormalizeCommand(unittest.TestCase):
