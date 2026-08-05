@@ -10,7 +10,8 @@ things Samba can emulate):
    │  dc  10.10.10.10    Samba AD DC (FORGE.LOCAL, same image as the ad lab)
    │  member  (dhcp)     Windows 11, auto-joins the domain during setup
    │  ca      (dhcp)     Windows Server 2022, joins + installs AD CS as
-   │                     an Enterprise Root CA and publishes VulnWeb (ESC1)
+   │                     an Enterprise Root CA and publishes VulnWeb
+   │                     (ESC1) + WeakWeb (ESC4)
    └───────────────────────────────────────────┘
 ```
 
@@ -35,9 +36,11 @@ things Samba can emulate):
   task (`ForgeLabCAPhase2`): renegotiates the secure channel, installs
   AD CS as Enterprise Root `forge-CA`, enriches the fixture **VulnWeb**
   template into ESC1 shape (enrollee-supplies-subject, auto-issue,
-  Domain Users enroll), publishes it, and drops `C:\OEM\CA-READY.txt`
+  Domain Users enroll), publishes VulnWeb AND WeakWeb (the esc4 target)
+  with `certutil -SetCATemplates`, and drops `C:\OEM\CA-READY.txt`
   as the readiness sentinel. First boot is a full Windows install +
-  AD CS (~30 min); state persists on `ca-data`.
+  AD CS (~30 min); state persists on `ca-data`. Validated from cold:
+  purge + rebuild lands a working CA end to end.
   **Server Core gotcha:** dockur's 2022 is Server CORE — MMC snap-ins
   can't install, so `-IncludeManagementTools` on the AD CS feature kills
   the whole chain silently (task exits 1, nothing installed). The oem

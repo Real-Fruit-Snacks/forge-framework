@@ -47,10 +47,22 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
 - options/registry/store/jobs/sessions/labs — unit
 - console commands (incl. resource, spool, creds, loot, report, history,
   shell passthrough, lab teardown/clean) — unit with mocked labs
-- web lab: http_headers, dir_buster (+recursion), http_login (both modes,
-  baseline, wrong-password) — integration
+- web lab: http_headers, dir_buster (+recursion), http_login — integration
 - ssh lab: banner, ssh_login (real paramiko handshake) — integration
-- smb lab: smb_enum (signing policy, shares, loot) — integration
+- smb lab: smb_enum, smb_login — integration
+- ad lab: full AD matrix — enum/groups/policies/misconfigs, kerberoast
+  (+targeted), asreproast, dcsync, golden ticket, s4u, rbcd, add_computer,
+  adcs_enum, shadow_creds plant/restore, bloodhound, pre2k, dpapi_backupkey
+  (DRS unwrap), pkinit clean-refusal — integration
+- windows lab: smb_exec, winrm_login/exec, coerce verdicts, sam_dump,
+  proc_watch — integration
+- domain lab: member enums + at_exec clean denial, ESC1 (analyst mints an
+  Administrator cert from the real CA), ESC4 (reshape → enroll → restore) —
+  integration, incl. cold CA builds
+- mssql lab: login, enum (sysadmin/links), xp_cmdshell Linux reporting,
+  OPENQUERY through the link — integration
+- snmp lab: spray hits + honest silence — integration
+- smb_capture: real NetNTLMv2 captured, hashcat-shaped — integration
 - handler: real payload → session → shell → cooperative stop — live
   sockets (no docker needed)
 - payloads/encoders — unit (+ generate when pwntools present)

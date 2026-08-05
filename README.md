@@ -31,27 +31,30 @@ and one command exports an engagement report.
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
 - **73 modules** — scanners (port, HTTP, recursive dir buster, unauth AD
-  profiler with coercion annotation, PoC/vuln search), SMB and AD
+  profiler with coercion annotation, PoC/vuln search), SMB/AD/MSSQL
   enumeration (users, groups, delegation, descriptions, gMSA, LAPS,
-  policies, misconfigs, raw LDAP, wire-format DNS with AD SRV discovery),
-  credential hunting over share contents, HTTP/SSH/SMB/Kerberos/LDAP/
-  MSSQL/WinRM/SNMP brute force plus a store-driven multi-protocol sprayer (pass-the-hash, lockout circuit-breakers),
-  kerberoast (targeted mode too) + AS-REP roast, DCSync, golden ticket,
-  S4U delegation abuse, PKINIT cert-to-TGT with UnPAC-the-hash, shadow
-  credentials (KeyCredentialLink plant), pass-the-ticket, NTLM hash-bait
-  + multi-method RPC coercion, SAM/LSA dump, ESC1 cert request,
-  psexec-class SMB exec, atexec-class scheduled-task exec, WinRM exec,
-  reverse-shell handler, and a payload set (bash, python, PHP,
-  PowerShell, shellcode, encoders)
+  policies, misconfigs, raw LDAP, wire-format DNS, BloodHound CE
+  collection), credential hunting over share contents, HTTP/SSH/SMB/
+  Kerberos/LDAP/MSSQL/WinRM/SNMP brute force plus a store-driven
+  multi-protocol sprayer (pass-the-hash, lockout circuit-breakers),
+  kerberoast (targeted mode too) + AS-REP roast + pre-2000 spray,
+  DCSync, golden ticket, S4U delegation abuse, PKINIT cert-to-TGT with
+  UnPAC-the-hash, shadow credentials (KeyCredentialLink plant),
+  ESC1/ESC4 certificate abuse, DPAPI domain backup key, pass-the-ticket,
+  NTLM hash-bait + multi-method RPC coercion + NetNTLMv2 capture,
+  SAM/LSA dump, psexec-class SMB exec, atexec-class scheduled-task exec,
+  WinRM exec, MSSQL exec with linked-server pivots, reverse-shell
+  handler, and a payload set (bash, python, PHP, PowerShell, shellcode,
+  encoders)
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
 - **Evidence layer** — SQLite workspace with hosts/services/creds/loot,
   file-loot blobs, Markdown/JSON reports, spool logs for exam evidence
-- **Docker labs** — seven throwaway targets (web, ssh, smb, Samba AD,
-  Windows Server, Windows 11 client, a full mini-domain) with readiness
-  checks, automatic teardown on exit, janitor (`lab clean`) and full
-  reclaim (`lab purge`)
+- **Docker labs** — nine throwaway targets (web, ssh, smb, mssql, snmp,
+  Samba AD, Windows Server, Windows 11 client, a full mini-domain with
+  an AD CS Enterprise CA) with readiness checks, automatic teardown on
+  exit, janitor (`lab clean`) and full reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
 - **590 tests** — unit plus docker-gated integration running real modules
   against real labs
@@ -117,10 +120,12 @@ forge (payloads/bash_reverse_tcp) > generate
 | `web` | `127.0.0.1:18080` | dir busting, HTTP brute force, scanner fixtures |
 | `ssh` | `127.0.0.1:12222` | SSH brute force with weak users |
 | `smb` | `127.0.0.1:10139/10445` | SMB shares, signing-policy checks |
-| `ad` | `127.0.0.1:389/88/445/135` | Samba AD DC (FORGE.LOCAL) with roastable + delegation fixtures |
+| `mssql` | `127.0.0.1:11433/11434` | SQL Server 2022 ×2, auto-linked (chain pivots) |
+| `snmp` | `127.0.0.1:10161` | SNMP community spray |
+| `ad` | `127.0.0.1:389/88/445/135` | Samba AD DC (FORGE.LOCAL) with roastable + delegation + ADCS fixtures |
 | `windows` | `127.0.0.1:1445/13389` | Windows Server 2022 VM for psexec/wmiexec-class work |
 | `workstation` | `127.0.0.1:2445/23389` | Windows 11 client VM |
-| `domain` | DC `389/88/445`, member `3445/33389` | small AD domain: Samba DC + auto-joining Win11 member |
+| `domain` | DC `389/88/445`, member `3445/33389`, CA `4445` | small AD domain: Samba DC + auto-joining Win11 member + AD CS Enterprise CA (ESC1/ESC4) |
 
 `lab up <name>` builds and starts a target; labs are torn down on exit and
 can be fully reclaimed with `lab purge <name>`. Each lab has a build README

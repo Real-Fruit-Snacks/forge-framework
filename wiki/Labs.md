@@ -34,7 +34,7 @@ rebuilds occasionally with `docker image prune`.
 | `windows` | `127.0.0.1:1445` (SMB), `13389` (RDP), `15985` (WinRM) | psexec/wmiexec-class Windows targets (KVM in docker) | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `workstation` | `127.0.0.1:2445` (SMB), `23389` (RDP) | Windows 11 client — the foothold box | `labadmin:Labpass2024!`; first boot installs (~20 min) |
 | `domain` | DC: `127.0.0.1:389/88/445`; member: `3445` (SMB), `33389` (RDP); CA: `4445` (SMB/cert pipe) | small AD domain: Samba DC + Win11 member that auto-joins FORGE.LOCAL + a Windows Server **Enterprise CA** (esc1) | DC creds as `ad`; member `labadmin:Labpass2024!` |
-| `mssql` | `127.0.0.1:11433` | TDS auth (mssql_login) | `sa:For9e_SQL!2024`; image is ~1.5 GB — purge when done |
+| `mssql` | `127.0.0.1:11433` + `11434` | TDS auth (mssql_login), mssql_enum, xp_cmdshell + linked-server chains | `sa:For9e_SQL!2024` (both instances; auto-linked by link-init) |
 | `snmp` | `127.0.0.1:10161` (udp) | community spray (snmp_login) | `private-lab`; everything else gets silence, like a real agent |
 
 Each lab has its own **build README** in its directory (`labs/<name>/README.md`)

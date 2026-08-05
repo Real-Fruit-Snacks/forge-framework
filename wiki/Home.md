@@ -31,29 +31,23 @@ forge.py        entry point (-x, -r, -q, --no-color)
 core/               options, module bases, registry, console, jobs,
                     sessions, store, labs, brute engine, report, config, log
 modules/            your arsenal: <type>/<category>/<name>.py
-labs/               docker targets (web, ssh, smb) + how to add more
-tests/              144 tests: unit + docker-gated integration
+labs/               nine docker targets (web, ssh, smb, mssql, snmp, ad,
+                    windows, workstation, domain) + build READMEs
+tests/              590 tests: unit + docker-gated integration
 wiki/               you are here
 ~/.forge/       your data: db, modules, history, loot, logs, config
 ```
 
 ## Current arsenal
 
-| Module | Purpose |
+73 modules and growing — `show modules` (or `search <term>`) lists the
+live inventory. The shape of it:
+
+| Area | Examples |
 |---|---|
-| `auxiliary/scanner/port_scan` | Threaded TCP connect scanner |
-| `auxiliary/scanner/http_headers` | Web server fingerprinting |
-| `auxiliary/scanner/dir_buster` | Content discovery (recursion, wildcard filtering) |
-| `auxiliary/scanner/smb_enum` | SMB shares + signing policy (impacket) |
-| `auxiliary/enum/ad_enum` | AD domain enumeration over LDAP (impacket) |
-| `auxiliary/login/http_login` | HTTP basic/form brute force |
-| `auxiliary/login/ssh_login` | SSH brute force (paramiko) |
-| `exploits/multi/handler` | Reverse-shell listener → sessions |
-| `exploits/example/demo_shell` | Teaching exploit (check → run → session) |
-| `payloads/python_reverse_tcp` | Python reverse shell one-liner |
-| `payloads/bash_reverse_tcp` | Bash /dev/tcp reverse shell one-liner |
-| `payloads/php_reverse_tcp` | PHP fsockopen reverse shell one-liner |
-| `payloads/powershell_reverse_tcp` | PowerShell reverse shell one-liner |
-| `payloads/shellcode_reverse_tcp` | Null-free shellcode (pwntools) |
-| `payloads/encoders/base64_command` | sh base64 wrapper |
-| `payloads/encoders/ps_base64` | PowerShell -enc wrapper |
+| Scanners | port_scan, http_headers, dir_buster (recursive), ad_probe, poc_search |
+| Enumeration | smb_enum, ad_* (users/groups/delegation/gMSA/LAPS/policies/misconfigs), dns_recon, bloodhound (CE JSON), mssql_enum, host packs, cred hunting |
+| Brute force | http/ssh/smb/kerberos/ldap/mssql/winrm/snmp logins, multi_spray, pre2k_spray |
+| AD attacks | kerberoast (+targeted), asreproast, dcsync, golden_ticket, s4u, rbcd, add_computer, pkinit (+UnPAC), shadow_creds, esc1, esc4, dpapi_backupkey, hash_bait, coerce, smb_capture, pass_the_ticket |
+| Exec | smb_exec, at_exec, winrm_exec, mssql_exec (linked pivots) |
+| Payloads | bash/python/php/powershell reverse one-liners, shellcode, encoders, handler |

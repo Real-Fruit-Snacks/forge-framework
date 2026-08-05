@@ -41,7 +41,11 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- PKINIT: cert -> TGT (closes the ESC1 chain against the domain CA)
+- DPAPI stage 2: masterkey + blob decryption (Chrome/vault/WiFi) on top
+  of dpapi_backupkey
+- PKINIT against a Windows AD KDC in the field (the Samba lab KDC has
+  none — module + error paths are done and proven)
+- forward relay (ntlmrelayx-class) on top of coerce + smb_capture
 - more encoders (hex, badchar-aware shellcode transforms)
 - pwntools exploit helpers (cyclic, ROP chains) for pwn work
 - C2-style session channels
