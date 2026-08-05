@@ -1,0 +1,30 @@
+"""Unit tests for the smb_capture module (loads fine without impacket).
+
+Run: python3 -m unittest discover -s tests
+"""
+
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+_spec = importlib.util.spec_from_file_location(
+    "cap_mod", ROOT / "modules" / "auxiliary" / "attack" / "smb_capture.py"
+)
+cap = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cap)
+
+
+class TestRequirements(unittest.TestCase):
+    def test_declares_impacket(self):
+        self.assertIn("impacket", cap.SmbCapture.requirements)
+
+    def test_module_loads_without_deps(self):
+        self.assertIsNotNone(cap.SmbCapture)
+
+
+if __name__ == "__main__":
+    unittest.main()
