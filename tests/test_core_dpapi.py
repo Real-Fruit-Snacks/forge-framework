@@ -41,30 +41,15 @@ def build_masterkey_file(rsa, masterkey, cb=None):
             mk_blob + dk_blob)
 
 
-def build_credential_file(masterkey, target, username, secret,
-                          guid="11111111-2222-3333-4444-555555555555"):
-    """Forward-build a CredentialFile the way Windows writes one: the
-    CREDENTIAL_BLOB plaintext DPAPI-encrypted with the masterkey —
-    session key = HMAC(SHA1(mk), salt), AES-256-CBC iv=0, PKCS7 pad,
-    signature = HMAC(keyHash, hmacfield) over the signed range."""
+def dpapi_encrypt(masterkey, plaintext, guid):
+    """Forward-build a DPAPI blob the way Windows writes one: session
+    key = HMAC(SHA1(mk), salt), AES-256-CBC iv=0, PKCS7 pad, signature
+    = HMAC(keyHash, hmacfield) over the signed range."""
     from Cryptodome.Cipher import AES
     from Cryptodome.Hash import HMAC, SHA1, SHA512
     from Cryptodome.Util.Padding import pad
     from impacket import dpapi
     from impacket.uuid import string_to_bin
-
-    def u16z(s):
-        return s.encode("utf-16-le") + b"\x00\x00"
-
-    t, u, sec = u16z(target), u16z(username), u16z(secret)
-    cred = struct.pack("<LLLLL", 0, 0, 0, 1, 0)  # Flags Size Unk0 Type Flags2
-    cred += struct.pack("<Q", 0)  # LastWritten
-    cred += struct.pack("<LLLQ", 0, 2, 0, 0)  # Unk2 Persist AttrCount Unk3
-    cred += struct.pack("<L", len(t)) + t
-    cred += struct.pack("<LLL", 0, 0, 0)  # alias/desc/unknown sizes
-    cred += struct.pack("<L", len(u)) + u
-    cred += struct.pack("<L", len(sec)) + sec
-    cred = cred[:4] + struct.pack("<L", len(cred)) + cred[8:]
 
     salt = b"\x44" * 32
     hmac_field = b"\x55" * 64
@@ -73,7 +58,7 @@ def build_credential_file(masterkey, target, username, secret,
     # deriveKey with SHA512: len(session)=64 <= block 128 -> as-is;
     # 64 >= AES-256 key 32 -> no extension. Mirror impacket exactly.
     cipher = AES.new(session[:32], AES.MODE_CBC, iv=b"\x00" * 16)
-    data_enc = cipher.encrypt(pad(cred, AES.block_size))
+    data_enc = cipher.encrypt(pad(plaintext, AES.block_size))
 
     def assemble(sign):
         return (struct.pack("<L", 1) + b"\x00" * 16 +
@@ -94,7 +79,28 @@ def build_credential_file(masterkey, target, username, secret,
     to_sign = blob[20:len(blob) - 64 - 4]
     h = HMAC.new(key_hash, hmac_field, SHA512)
     h.update(to_sign)
-    blob = assemble(h.digest())
+    return assemble(h.digest())
+
+
+def build_credential_file(masterkey, target, username, secret,
+                          guid="11111111-2222-3333-4444-555555555555"):
+    """Forward-build a CredentialFile the way Windows writes one: the
+    CREDENTIAL_BLOB plaintext DPAPI-encrypted with the masterkey."""
+
+    def u16z(s):
+        return s.encode("utf-16-le") + b"\x00\x00"
+
+    t, u, sec = u16z(target), u16z(username), u16z(secret)
+    cred = struct.pack("<LLLLL", 0, 0, 0, 1, 0)  # Flags Size Unk0 Type Flags2
+    cred += struct.pack("<Q", 0)  # LastWritten
+    cred += struct.pack("<LLLQ", 0, 2, 0, 0)  # Unk2 Persist AttrCount Unk3
+    cred += struct.pack("<L", len(t)) + t
+    cred += struct.pack("<LLL", 0, 0, 0)  # alias/desc/unknown sizes
+    cred += struct.pack("<L", len(u)) + u
+    cred += struct.pack("<L", len(sec)) + sec
+    cred = cred[:4] + struct.pack("<L", len(cred)) + cred[8:]
+
+    blob = dpapi_encrypt(masterkey, cred, guid)
     return struct.pack("<LLL", 1, len(blob), 0) + blob
 
 
@@ -193,6 +199,76 @@ class TestCredentialRoundtrip(unittest.TestCase):
         guid, blob = dpapix.decrypt_credential_file(
             data, {"11111111-2222-3333-4444-555555555555": b"\xff" * 64})
         self.assertIsNone(blob)
+
+
+@unittest.skipUnless(HAVE_IMPACKET, "impacket not installed")
+class TestBrowserKey(unittest.TestCase):
+    GUID = "11111111-2222-3333-4444-555555555555"
+
+    def _local_state(self, masterkey):
+        import base64
+        blob = dpapi_encrypt(masterkey, b"\x07" * 32, self.GUID)
+        b64 = base64.b64encode(b"DPAPI" + blob).decode()
+        return ('{"os_crypt":{"encrypted_key":"%s"}}' % b64).encode()
+
+    def test_roundtrip(self):
+        masterkey = bytes(range(64))
+        key = dpapix.decrypt_browser_key(
+            self._local_state(masterkey), {self.GUID: masterkey})
+        self.assertEqual(key, b"\x07" * 32)
+
+    def test_missing_masterkey(self):
+        masterkey = bytes(range(64))
+        self.assertIsNone(
+            dpapix.decrypt_browser_key(self._local_state(masterkey), {}))
+
+    def test_garbage_json(self):
+        self.assertIsNone(dpapix.decrypt_browser_key(
+            b"not json", {self.GUID: bytes(range(64))}))
+
+
+@unittest.skipUnless(HAVE_IMPACKET, "impacket not installed")
+class TestBrowserLogin(unittest.TestCase):
+    def _v10(self, aes_key, password):
+        from Cryptodome.Cipher import AES
+        nonce = b"\x99" * 12
+        cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+        ct, tag = cipher.encrypt_and_digest(password.encode())
+        return b"v10" + nonce + ct + tag
+
+    def test_roundtrip(self):
+        plain = dpapix.decrypt_browser_login(
+            self._v10(b"\x07" * 32, "ChromePass2024!"), b"\x07" * 32)
+        self.assertEqual(plain, b"ChromePass2024!")
+
+    def test_v20_skipped(self):
+        self.assertIsNone(
+            dpapix.decrypt_browser_login(b"v20" + b"\x00" * 40,
+                                         b"\x07" * 32))
+
+    def test_bad_tag_returns_none(self):
+        blob = bytearray(self._v10(b"\x07" * 32, "x"))
+        blob[-1] ^= 0xFF
+        self.assertIsNone(
+            dpapix.decrypt_browser_login(bytes(blob), b"\x07" * 32))
+
+
+class TestParseLoginData(unittest.TestCase):
+    def test_rows(self):
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE logins (origin_url TEXT, "
+                     "username_value TEXT, password_value BLOB, "
+                     "date_created INTEGER)")
+        conn.execute("INSERT INTO logins VALUES (?, ?, ?, 0)",
+                     ("https://sso.forge.local", "analyst", b"v10xyz"))
+        data = conn.serialize() if hasattr(conn, "serialize") else None
+        conn.close()
+        if data is None:
+            self.skipTest("sqlite serialize unavailable")
+        rows = dpapix.parse_login_data(data)
+        self.assertEqual(rows, [("https://sso.forge.local", "analyst",
+                                 b"v10xyz")])
 
 
 if __name__ == "__main__":

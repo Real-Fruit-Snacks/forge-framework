@@ -41,8 +41,7 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- DPAPI stage 4: Chrome/Edge Login Data triage (v10 blobs) on top of
-  the dpapi_* chain; WiFi/system-scope keys via DPAPI_SYSTEM
+- WiFi/system-scope DPAPI keys via DPAPI_SYSTEM (LSA secrets path)
 - PKINIT against a Windows AD KDC in the field (the Samba lab KDC has
   none — module + error paths are done and proven)
 - forward relay (ntlmrelayx-class) on top of coerce + smb_capture

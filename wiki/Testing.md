@@ -58,9 +58,10 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
   proc_watch — integration
 - domain lab: member enums + at_exec clean denial, ESC1 (analyst mints an
   Administrator cert from the real CA), ESC4 (reshape → enroll → restore),
-  dpapi_masterkeys + dpapi_credentials (scheduled-task fixtures — real
-  masterkey/probe blob/cmdkey entry — domain-key unwrap over SMB, proven
-  by decrypting the live artifacts) — integration, incl. cold CA builds
+  dpapi_masterkeys/credentials/chrome (scheduled-task fixtures — real
+  masterkey, probe blob, cmdkey entry, DPAPI-wrapped Local State —
+  proven by recovering the plaintext from each live artifact) —
+  integration, incl. cold CA builds
 - mssql lab: login, enum (sysadmin/links), xp_cmdshell Linux reporting,
   OPENQUERY through the link — integration
 - snmp lab: spray hits + honest silence — integration

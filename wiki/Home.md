@@ -48,6 +48,6 @@ live inventory. The shape of it:
 | Scanners | port_scan, http_headers, dir_buster (recursive), ad_probe, poc_search |
 | Enumeration | smb_enum, ad_* (users/groups/delegation/gMSA/LAPS/policies/misconfigs), dns_recon, bloodhound (CE JSON), mssql_enum, host packs, cred hunting |
 | Brute force | http/ssh/smb/kerberos/ldap/mssql/winrm/snmp logins, multi_spray, pre2k_spray |
-| AD attacks | kerberoast (+targeted), asreproast, dcsync, golden_ticket, s4u, rbcd, add_computer, pkinit (+UnPAC), shadow_creds, esc1, esc4, dpapi_backupkey, dpapi_masterkeys, dpapi_credentials, hash_bait, coerce, smb_capture, pass_the_ticket |
+| AD attacks | kerberoast (+targeted), asreproast, dcsync, golden_ticket, s4u, rbcd, add_computer, pkinit (+UnPAC), shadow_creds, esc1, esc4, dpapi_backupkey, dpapi_masterkeys, dpapi_credentials, dpapi_chrome, hash_bait, coerce, smb_capture, pass_the_ticket |
 | Exec | smb_exec, at_exec, winrm_exec, mssql_exec (linked pivots) |
 | Payloads | bash/python/php/powershell reverse one-liners, shellcode, encoders, handler |

