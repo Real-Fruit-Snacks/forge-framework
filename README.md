@@ -5,7 +5,7 @@
 A modular, Metasploit-style offensive-security framework — pure Python,
 stdlib core, with docker lab targets and a full test suite.
 
-[![Version](https://img.shields.io/badge/version-0.5.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
 [![Tests](https://img.shields.io/badge/tests-590%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
@@ -87,7 +87,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  | |_ | | | | |_) | |  _|  _|
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
-       forge v0.5 -- offensive-security framework
+       forge v0.6 -- offensive-security framework
 + -- --=[ 73 modules loaded
 
 forge > lab up web
