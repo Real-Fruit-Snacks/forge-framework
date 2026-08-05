@@ -9,57 +9,7 @@ item ships, delete it here and update [[Development]]'s roadmap pointer.
 The bar for every item: real modules against real labs, proven on the
 artifact itself — no mocked crypto, no "it should work".
 
-## 1. Forward relay (ntlmrelayx-class)
-
-**Scope.** `modules/auxiliary/attack/relay_smb.py`: an SMB server that
-accepts coerced NTLM authentications and relays them to LDAP on the DC,
-writing RBCD (`msDS-AllowedToActOnBehalfOfOtherIdentity`) on a chosen
-victim machine account, pointing at an attacker-controlled machine
-account. Chains with modules we already have:
-
-  coerce (fires the auth at us) -> relay -> RBCD written -> s4u (already
-  builds the S4U2self+S4U2proxy chain) -> admin on the victim
-
-**Payoff.** The classic modern AD kill chain and the single most-used
-privesc pattern in the field. Completes the coerce + smb_capture triad.
-
-**Proven building blocks.** `coerce` (multi-method RPC coercion, e2e),
-`smb_capture` (the NetNTLMv2 listener half already exists — reuse its
-SMBServer plumbing), `s4u` (delegation abuse, e2e), `add_computer`
-(creates the RBCD-source machine account via MachineAccountQuota, e2e),
-`rbcd` (writes the attribute over LDAP — proves the Samba lab accepts
-the write).
-
-**Design notes.**
-- The relay is the NTLM message shuffle: take the incoming NTLM
-  negotiate (type 1), get a challenge (type 2) from the TARGET (LDAP
-  simple bind with NTLM SASL), hand it back to the coerced client, and
-  forward its response (type 3). impacket's SMBServer +
-  `impacket.ldap` with manual NTLM message handling; study
-  impacket's `examples/ntlmrelayx` (`servers/smbrelayx.py`,
-  `attacks/ldapattack.py`) — that's the reference implementation,
-  same as dploot was for DPAPI.
-- Relay SMB->LDAP(S) works because SMB carries no EPA/channel binding.
-  LDAP signing: relay to 389 plaintext; Server 2022 doesn't enforce
-  LDAP signing by default (and our Samba DC doesn't either). HTTP->
-  LDAPS is the EPA-blocked path — don't build it.
-- The coerced account is a MACHINE account (DC$ or member$) — relay
-  targets are machine creds, which is why the write target is RBCD on a
-  victim, with the source being our add_computer-created account.
-- Run mode must be a background job (jobs system exists) so coerce can
-  fire from the same console.
-
-**Testing plan.** E2E class against the domain lab: relay in `run -j`,
-coerce the member (labadmin creds, proven), assert RBCD attribute
-landed on the member (LDAP read-back — verify the artifact, not the
-exit status), then s4u from our machine account to an admin SPN on the
-member and assert the ticket. No new fixtures needed.
-
-**Files.** new `modules/auxiliary/attack/relay_smb.py`; reuse
-`smb_capture`'s server code (extract the shareable half into core if it
-grows a second consumer); e2e class in tests/test_integration.py.
-
-## 2. DPAPI stage 5: system-scope keys (WiFi, machine creds)
+## 1. DPAPI stage 5: system-scope keys (WiFi, machine creds)
 
 **Scope.** `modules/auxiliary/attack/dpapi_system.py`: pull the
 DPAPI_SYSTEM keys out of LSA secrets (bootkey from SYSTEM hive +
@@ -100,7 +50,7 @@ forward-build a system masterkey file with known DPAPI_SYSTEM keys
 **Files.** new module; core/dpapi.py: `decrypt_system_masterkey_file`,
 `wifi_passwords(xml)`; tests.
 
-## 3. Windows AD DC lab role (PKINIT field test + Windows KDC)
+## 2. Windows AD DC lab role (PKINIT field test + Windows KDC)
 
 **Scope.** A 4th role in labs/domain: `windc` — dockurr/windows Server
 2022 promoted to a second DC (AD DS + DNS), joined to FORGE.LOCAL
@@ -135,7 +85,7 @@ with an ESC1-issued cert (already minted in the ESC tests) -> real TGT
 **Files.** labs/domain/compose.yml + labs/domain/oem-windc/; nothing in
 modules (they're built); wiki/Labs.md build notes.
 
-## 4. More encoders (hex, badchar-aware)
+## 3. More encoders (hex, badchar-aware)
 
 **Scope.** Extend modules/payloads/ encoder set: plain hex encode, and
 a badchar-aware transform that takes a BADCHARS option and picks an
@@ -153,7 +103,7 @@ explicitly added later.
 **Testing plan.** Unit: roundtrip + badchar assertion on generated
 bytes; generate-path e2e already exists for payloads — extend it.
 
-## 5. pwntools exploit helpers
+## 4. pwntools exploit helpers
 
 **Scope.** Modules wrapping pwntools for pwn work: `pwn/cyclic`
 (pattern gen + offset find against a crash input), `pwn/rop` (ROP chain
@@ -171,7 +121,7 @@ Cyclic is pure computation (easy, do first). ROP needs a target binary
 pwntools presence against a tiny fixture ELF (compile in-test with gcc
 when available, skip otherwise — no committed binaries).
 
-## 6. C2-style session channels
+## 5. C2-style session channels
 
 **Scope.** Beaconing sessions on top of the handler: poll-based
 HTTP(S)/named-pipe channels with jitter + a task queue per session,
@@ -192,7 +142,7 @@ generator modules so `generate` emits a beacon one-liner.
 against a fixture listener, assert task/result round-trip through real
 HTTP on the web lab.
 
-## 7. Console `set` raw-value semantics
+## 6. Console `set` raw-value semantics
 
 **Scope.** core/console.py `do_set`: today `shlex.split` eats
 backslashes, so `set COMMAND ... C:\Users\...` arrives mangled

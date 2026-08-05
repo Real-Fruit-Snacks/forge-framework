@@ -121,6 +121,12 @@ sed -i '/^\[global\]/a \   rpc server dynamic port range = 49152-49160' /etc/sam
 # defaults to signing-required for the same reason dploot's NTLM path
 # works there — match it.
 sed -i '/^\[global\]/a \   server signing = required' /etc/samba/smb.conf
+# NTLM LDAP binds (the relay_smb relay leg): Samba defaults
+# "ldap server require strong auth" to yes and REJECTS unsigned NTLM
+# SASL binds outright — but stock Windows Server does NOT enforce LDAP
+# signing, so a relayed (unsignable) bind is accepted there. Mirror the
+# Windows default, or the coerce -> relay chain has no lab to live in.
+sed -i '/^\[global\]/a \   ldap server require strong auth = no' /etc/samba/smb.conf
 # when the DC is a lab's DNS server (domain lab), it must also resolve
 # the outside world — members download things through it
 sed -i '/^\[global\]/a \   dns forwarder = 8.8.8.8' /etc/samba/smb.conf

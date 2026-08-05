@@ -41,9 +41,9 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding. The working backlog — scope, payoff, proven
 building blocks, design notes, testing plans — lives in [[Roadmap]].
-Highlights in flight order: forward relay (coerce → LDAP → RBCD → s4u),
-DPAPI stage 5 (system-scope keys), a Windows DC lab role (real PKINIT),
-encoders, pwntools helpers, C2-style session channels.
+Highlights in flight order: DPAPI stage 5 (system-scope keys), a
+Windows DC lab role (real PKINIT), encoders, pwntools helpers, C2-style
+session channels.
 
 ## Versioning
 

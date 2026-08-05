@@ -51,6 +51,14 @@ comment there for what each fixture feeds). Highlights:
    boots broke. Now the finished smb.conf is copied onto the volume and
    `/etc/samba/smb.conf` symlinks to it, so fast-path boots are
    consistent.
+5. **`ldap server require strong auth = no`** (entrypoint.sh smb.conf
+   tuning) — Samba defaults it to yes and REJECTS unsigned NTLM SASL
+   binds outright; stock Windows Server doesn't enforce LDAP signing,
+   so a relayed (unsignable) NTLM bind is accepted there. The relay_smb
+   e2e lives on this — it's tuned to match the Windows default, with
+   the consequence documented: unsigned binds are weaker, fine for a
+   lab. NOTE: the tuning only lands on cold provision — a persisted
+   smb.conf on an old volume keeps the old value (`lab purge` first).
 
 **Ports (1:1 on loopback — impacket ignores URL ports and speaks AD
 ports only):** 135 → `127.0.0.1:135` (RPC endpoint mapper), 389 →

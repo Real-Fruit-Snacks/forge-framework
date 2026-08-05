@@ -8,7 +8,7 @@ stdlib core, with docker lab targets and a full test suite.
 [![Version](https://img.shields.io/badge/version-0.6.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-619%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+[![Tests](https://img.shields.io/badge/tests-624%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
 
 </div>
 
@@ -30,7 +30,7 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **76 modules** — full inventory below
+- **77 modules** — full inventory below
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
@@ -41,7 +41,7 @@ and one command exports an engagement report.
   an AD CS Enterprise CA) with readiness checks, automatic teardown on
   exit, janitor (`lab clean`) and full reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **619 tests** — unit plus docker-gated integration running real modules
+- **624 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Modules
@@ -53,7 +53,7 @@ and one command exports an engagement report.
 | Brute force | HTTP/SSH/SMB/Kerberos/LDAP/MSSQL/WinRM/SNMP logins, store-driven multi-protocol sprayer (pass-the-hash, lockout circuit-breakers) |
 | AD attacks | kerberoast (+targeted mode), AS-REP roast, pre-2000 machine spray, DCSync, golden ticket, S4U delegation abuse, RBCD, add_computer, PKINIT cert-to-TGT with UnPAC-the-hash, shadow credentials |
 | Certificate abuse | ESC1 (enrollee-supplied SAN), ESC4 (writable-template surgery), DPAPI domain backup key, masterkey + credential/browser triage |
-| Coercion & capture | NTLM hash bait, multi-method RPC coercion, NetNTLMv2 capture server |
+| Coercion & capture | NTLM hash bait, multi-method RPC coercion, NetNTLMv2 capture server, SMB relay to LDAP (RBCD write) |
 | Exec | psexec-class SMB, atexec-class scheduled task, WinRM, MSSQL with linked-server pivots |
 | Shells & payloads | reverse-shell handler, bash/python/PHP/PowerShell one-liners, shellcode, encoders |
 

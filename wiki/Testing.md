@@ -60,7 +60,9 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
   Administrator cert from the real CA), ESC4 (reshape → enroll → restore),
   dpapi_masterkeys/credentials/chrome (scheduled-task fixtures — real
   masterkey, probe blob, cmdkey entry, DPAPI-wrapped Local State —
-  proven by recovering the plaintext from each live artifact) —
+  proven by recovering the plaintext from each live artifact), relay_smb
+  (NTLM relay to Samba LDAP: manual auth + machine-account auth via the
+  in-network relay container, full attack path, clean ACL denial) —
   integration, incl. cold CA builds
 - mssql lab: login, enum (sysadmin/links), xp_cmdshell Linux reporting,
   OPENQUERY through the link — integration

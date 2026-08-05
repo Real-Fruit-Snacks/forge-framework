@@ -143,6 +143,25 @@ never run both.
   range (`rpc server dynamic port range = 49152-49160` in smb.conf's
   [global]) and publishes it 1:1; without it DCSync hangs at endpoint
   resolution.
+- **Samba's LDAP defaults break the relay lab twice, tuned in
+  entrypoint.sh**: `ldap server require strong auth` defaults to yes,
+  which REJECTS unsigned NTLM SASL binds outright (stock Windows Server
+  doesn't enforce LDAP signing — a relayed, unsignable bind is accepted
+  there), and impacket's ldap3/SICILY relay client gets its bind
+  terminated on sight regardless — relay_smb's client speaks SASL
+  NTLM (GSS-SPNEGO) instead, the shape impacket.ldap uses daily. Two
+  more relay-lab truths, verified end to end: Samba's spoolss accepts
+  the printerbug RPC and reports SERVER_UNAVAILABLE without EVER
+  dialing out (and the member's 24H2 refuses every coerce method), so
+  the machine-account path is proven with a real add_computer account
+  authenticating at an in-network relay container
+  (tests/relay_driver.py in the forge-relay-test image — the desktop
+  firewall drops container→host sockets, UNC callbacks carry no port,
+  and 445 binds as container root); and Samba's computer ACL gives SELF
+  no write on the RBCD attribute, so the relay's write gets
+  insufficientAccessRights there (the admin path gets
+  constraintViolation — system-only). Windows DCs accept the machine
+  account's write of its own attribute — that's the field attack.
 - **Never request `msDS-AllowedToActOnBehalfOfOtherIdentity` values over
   LDAP** — it's a raw security descriptor and impacket's LDAP codec dies
   decoding it (`PyAsn1UnicodeDecodeError`), killing the whole search.
