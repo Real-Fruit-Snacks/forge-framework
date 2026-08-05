@@ -8,7 +8,7 @@ stdlib core, with docker lab targets and a full test suite.
 [![Version](https://img.shields.io/badge/version-0.6.0-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework/releases)
 [![License](https://img.shields.io/badge/license-MIT-6bdcff)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.10-f0c674)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-599%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
+[![Tests](https://img.shields.io/badge/tests-608%20passing-63f2ab)](https://github.com/Real-Fruit-Snacks/forge-framework)
 
 </div>
 
@@ -30,7 +30,7 @@ and one command exports an engagement report.
 
 - **msfconsole-style REPL** — `use`/`set`/`run`, tab completion, persistent
   history, resource files, output spooling with session capture
-- **74 modules** — full inventory below
+- **75 modules** — full inventory below
 - **Background jobs** — thread-based with captured output and cooperative stop
 - **Sessions** — raw-tty interactive shells, pty upgrade, live resize sync,
   Ctrl-] detach
@@ -41,7 +41,7 @@ and one command exports an engagement report.
   an AD CS Enterprise CA) with readiness checks, automatic teardown on
   exit, janitor (`lab clean`) and full reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **599 tests** — unit plus docker-gated integration running real modules
+- **608 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Modules
@@ -52,7 +52,7 @@ and one command exports an engagement report.
 | Enumeration | SMB/AD/MSSQL (users, groups, delegation, descriptions, gMSA, LAPS, policies, misconfigs, raw LDAP, wire-format DNS, BloodHound CE collection), credential hunting over share contents |
 | Brute force | HTTP/SSH/SMB/Kerberos/LDAP/MSSQL/WinRM/SNMP logins, store-driven multi-protocol sprayer (pass-the-hash, lockout circuit-breakers) |
 | AD attacks | kerberoast (+targeted mode), AS-REP roast, pre-2000 machine spray, DCSync, golden ticket, S4U delegation abuse, RBCD, add_computer, PKINIT cert-to-TGT with UnPAC-the-hash, shadow credentials |
-| Certificate abuse | ESC1 (enrollee-supplied SAN), ESC4 (writable-template surgery), DPAPI domain backup key + masterkey looting |
+| Certificate abuse | ESC1 (enrollee-supplied SAN), ESC4 (writable-template surgery), DPAPI domain backup key, masterkey + credential triage |
 | Coercion & capture | NTLM hash bait, multi-method RPC coercion, NetNTLMv2 capture server |
 | Exec | psexec-class SMB, atexec-class scheduled task, WinRM, MSSQL with linked-server pivots |
 | Shells & payloads | reverse-shell handler, bash/python/PHP/PowerShell one-liners, shellcode, encoders |
@@ -88,7 +88,7 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
        forge v0.6 -- offensive-security framework
-+ -- --=[ 74 modules loaded
++ -- --=[ 75 modules loaded
 
 forge > lab up web
 forge > use auxiliary/scanner/dir_buster

