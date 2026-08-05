@@ -55,7 +55,9 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
   adcs_enum, shadow_creds plant/restore, bloodhound, pre2k, dpapi_backupkey
   (DRS unwrap), pkinit clean-refusal — integration
 - windows lab: smb_exec, winrm_login/exec, coerce verdicts, sam_dump,
-  proc_watch — integration
+  proc_watch, dpapi_system (DPAPI_SYSTEM via winreg hives, SYSTEM
+  masterkeys, WiFi password from a real LocalSystem-wrapped profile
+  XML) — integration
 - domain lab: member enums + at_exec clean denial, ESC1 (analyst mints an
   Administrator cert from the real CA), ESC4 (reshape → enroll → restore),
   dpapi_masterkeys/credentials/chrome (scheduled-task fixtures — real

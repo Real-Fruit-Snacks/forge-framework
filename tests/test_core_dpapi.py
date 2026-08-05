@@ -82,6 +82,41 @@ def dpapi_encrypt(masterkey, plaintext, guid):
     return assemble(h.digest())
 
 
+def build_system_masterkey_file(pre_shared, masterkey,
+                                guid="11111111-2222-3333-4444-555555555555"):
+    """Forward-build a SYSTEM-context MasterKeyFile the way Windows
+    writes one: the masterkey PBKDF2/HMAC-encrypted with a raw
+    pre-shared key (the DPAPI_SYSTEM machine/user key path — no RSA
+    anywhere on this path, unlike the domain-user chain)."""
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Hash import HMAC, SHA512
+    from impacket import dpapi
+    salt = b"\x11" * 16
+    iterations = 4000
+    prf = lambda p, s: HMAC.new(p, s, SHA512).digest()
+    helper = dpapi.MasterKey()
+    derived = helper.deriveKey(pre_shared, salt, 32 + 16,
+                               count=iterations, hashFunction=prf)
+    crypt_key, iv = derived[:32], derived[32:48]
+    hmac_salt = b"\x22" * 16
+    hmac_key = HMAC.new(pre_shared, hmac_salt, SHA512).digest()
+    # decrypt checks hmac against ALGORITHMS_DATA[SHA512][0] = 16 bytes
+    hmac_val = HMAC.new(hmac_key, masterkey, SHA512).digest()[:16]
+    # layout decrypt expects: salt(16) hmac(16) pad(16) key(64) at END
+    plain = hmac_salt + hmac_val + b"\x00" * 16 + masterkey
+    cipher = AES.new(crypt_key, AES.MODE_CBC, iv)
+    data = cipher.encrypt(plain)
+    mk_blob = (struct.pack("<L", 1) + salt +
+               struct.pack("<L", iterations) +
+               struct.pack("<L", dpapi.ALGORITHMS.CALG_SHA_512.value) +
+               struct.pack("<L", dpapi.ALGORITHMS.CALG_AES_256.value) +
+               data)
+    guid_utf16 = guid.encode("utf-16-le")  # exactly the 72-byte field
+    return (struct.pack("<LLL", 1, 0, 0) + guid_utf16 +
+            struct.pack("<LLL", 0, 0, 0) +
+            struct.pack("<QQQQ", len(mk_blob), 0, 0, 0) + mk_blob)
+
+
 def build_credential_file(masterkey, target, username, secret,
                           guid="11111111-2222-3333-4444-555555555555"):
     """Forward-build a CredentialFile the way Windows writes one: the
@@ -269,6 +304,77 @@ class TestParseLoginData(unittest.TestCase):
         rows = dpapix.parse_login_data(data)
         self.assertEqual(rows, [("https://sso.forge.local", "analyst",
                                  b"v10xyz")])
+
+
+@unittest.skipUnless(HAVE_IMPACKET, "impacket not installed")
+class TestSystemMasterkey(unittest.TestCase):
+    def test_roundtrip_user_and_machine_key(self):
+        masterkey = bytes(range(64))
+        for slot in ("UserKey", "MachineKey"):
+            pre_shared = bytes([0x42]) * 20
+            blob = build_system_masterkey_file(pre_shared, masterkey)
+            guid, recovered = dpapix.decrypt_system_masterkey_file(
+                blob, {slot: pre_shared})
+            self.assertEqual(guid,
+                             "11111111-2222-3333-4444-555555555555")
+            self.assertEqual(recovered, masterkey, slot)
+
+    def test_wrong_key_returns_none(self):
+        blob = build_system_masterkey_file(b"\x42" * 20,
+                                           bytes(range(64)))
+        guid, recovered = dpapix.decrypt_system_masterkey_file(
+            blob, {"UserKey": b"\xff" * 20, "MachineKey": b"\xee" * 20})
+        self.assertIsNone(recovered)
+
+
+class TestParseDpapiSystem(unittest.TestCase):
+    def test_parses_secret_lines(self):
+        keys = dpapix.parse_dpapi_system([
+            "dpapi_machinekey:0x" + "41" * 20,
+            "dpapi_userkey:0x" + "42" * 20,
+            "sc__svcaccount:password123",
+        ])
+        self.assertEqual(keys["MachineKey"], b"\x41" * 20)
+        self.assertEqual(keys["UserKey"], b"\x42" * 20)
+
+
+@unittest.skipUnless(HAVE_IMPACKET, "impacket not installed")
+class TestWifiPasswords(unittest.TestCase):
+    GUID = "11111111-2222-3333-4444-555555555555"
+    XML = ('<?xml version="1.0"?>\n'
+           '<WLANProfile xmlns="http://www.microsoft.com/networking/'
+           'WLAN/profile/v1">\n'
+           ' <name>ForgeLabWiFi</name>\n'
+           ' <SSIDConfig><SSID><name>ForgeLabWiFi</name></SSID>'
+           '</SSIDConfig>\n'
+           ' <MSM><security><sharedKey>\n'
+           '   <keyType>passPhrase</keyType><protected>true</protected>\n'
+           '   <keyMaterial>{blob}</keyMaterial>\n'
+           ' </sharedKey></security></MSM>\n'
+           '</WLANProfile>')
+
+    def _xml(self, masterkey):
+        blob = dpapi_encrypt(masterkey, b"WiFiPass2024!", self.GUID)
+        return self.XML.replace("{blob}", blob.hex()).encode()
+
+    def test_roundtrip(self):
+        masterkey = bytes(range(64))
+        ssid, password = dpapix.wifi_passwords(
+            self._xml(masterkey), {self.GUID: masterkey})
+        self.assertEqual(ssid, "ForgeLabWiFi")
+        self.assertEqual(password, "WiFiPass2024!")
+
+    def test_open_network(self):
+        xml = self.XML.replace(
+            '   <keyMaterial>{blob}</keyMaterial>\n', "").encode()
+        ssid, password = dpapix.wifi_passwords(xml, {})
+        self.assertEqual(ssid, "ForgeLabWiFi")
+        self.assertIsNone(password)
+
+    def test_missing_masterkey(self):
+        ssid, password = dpapix.wifi_passwords(
+            self._xml(bytes(range(64))), {})
+        self.assertIsNone(password)
 
 
 if __name__ == "__main__":

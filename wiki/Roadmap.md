@@ -9,48 +9,7 @@ item ships, delete it here and update [[Development]]'s roadmap pointer.
 The bar for every item: real modules against real labs, proven on the
 artifact itself — no mocked crypto, no "it should work".
 
-## 1. DPAPI stage 5: system-scope keys (WiFi, machine creds)
-
-**Scope.** `modules/auxiliary/attack/dpapi_system.py`: pull the
-DPAPI_SYSTEM keys out of LSA secrets (bootkey from SYSTEM hive +
-SECURITY hive, both fetchable over SMB), decrypt the SYSTEM masterkeys
-(`Windows\System32\Microsoft\Protect\<sid>\` and `...\S-1-5-18\User\`),
-then the blobs they protect: WiFi profile `keyMaterial` XML, scheduled
-task credentials, service account passwords.
-
-**Payoff.** The machine half of DPAPI — the user chain (stages 1-4)
-doesn't touch it. WiFi passwords alone justify it on real assessments.
-
-**Proven building blocks.** `sam_dump` (remote registry hive dump —
-the transport for SYSTEM/SECURITY), the whole core/dpapi.py chain.
-dploot's `triage_system_masterkeys` (fetched during stage 2) is the
-reference: `LSASecrets(SECURITYFile, bootkey, remoteOps,
-perSecretCallback)` yields `dpapi_machinekey`/`dpapi_userkey` secrets —
-impacket ships the entire mechanism in `examples/secretsdump.py`.
-
-**Design notes.**
-- `DPAPI_SYSTEM` struct: Version(4), MachineKey(20), UserKey(20).
-  `MasterKey.decrypt()` takes either key directly (no RSA step — this
-  is the password-path decryption, impacket's dpapi.py example shows it
-  under the `-system -security` flags).
-- WiFi XML lives at `ProgramData\Microsoft\Wlansvc\Profiles\Interfaces\
-  <guid>\*.xml`; `keyMaterial` is a DPAPI blob under the SYSTEM
-  masterkey.
-- Server SKUs often lack Wlansvc — the honest lab fixture is a
-  LocalSystem-scope `CryptProtectData` blob (same scheduled-task
-  pattern as stages 2-4, but `'LocalSystem'` scope), decrypted with the
-  recovered MachineKey. WiFi XML parsing gets unit-tested with a real
-  captured blob shape instead.
-
-**Testing plan.** E2E against the windows lab (Server 2022): fixture
-mints a system-scope blob; module recovers plaintext. Unit tests
-forward-build a system masterkey file with known DPAPI_SYSTEM keys
-(password-path PBKDF2, the construction already in test_core_dpapi).
-
-**Files.** new module; core/dpapi.py: `decrypt_system_masterkey_file`,
-`wifi_passwords(xml)`; tests.
-
-## 2. Windows AD DC lab role (PKINIT field test + Windows KDC)
+## 1. Windows AD DC lab role (PKINIT field test + Windows KDC)
 
 **Scope.** A 4th role in labs/domain: `windc` — dockurr/windows Server
 2022 promoted to a second DC (AD DS + DNS), joined to FORGE.LOCAL
@@ -85,7 +44,7 @@ with an ESC1-issued cert (already minted in the ESC tests) -> real TGT
 **Files.** labs/domain/compose.yml + labs/domain/oem-windc/; nothing in
 modules (they're built); wiki/Labs.md build notes.
 
-## 3. More encoders (hex, badchar-aware)
+## 2. More encoders (hex, badchar-aware)
 
 **Scope.** Extend modules/payloads/ encoder set: plain hex encode, and
 a badchar-aware transform that takes a BADCHARS option and picks an
@@ -103,7 +62,7 @@ explicitly added later.
 **Testing plan.** Unit: roundtrip + badchar assertion on generated
 bytes; generate-path e2e already exists for payloads — extend it.
 
-## 4. pwntools exploit helpers
+## 3. pwntools exploit helpers
 
 **Scope.** Modules wrapping pwntools for pwn work: `pwn/cyclic`
 (pattern gen + offset find against a crash input), `pwn/rop` (ROP chain
@@ -121,7 +80,7 @@ Cyclic is pure computation (easy, do first). ROP needs a target binary
 pwntools presence against a tiny fixture ELF (compile in-test with gcc
 when available, skip otherwise — no committed binaries).
 
-## 5. C2-style session channels
+## 4. C2-style session channels
 
 **Scope.** Beaconing sessions on top of the handler: poll-based
 HTTP(S)/named-pipe channels with jitter + a task queue per session,
@@ -142,7 +101,7 @@ generator modules so `generate` emits a beacon one-liner.
 against a fixture listener, assert task/result round-trip through real
 HTTP on the web lab.
 
-## 6. Console `set` raw-value semantics
+## 5. Console `set` raw-value semantics
 
 **Scope.** core/console.py `do_set`: today `shlex.split` eats
 backslashes, so `set COMMAND ... C:\Users\...` arrives mangled

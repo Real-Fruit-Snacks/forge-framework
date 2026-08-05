@@ -91,8 +91,11 @@ janitor for strays (label-based removal even without the compose file).
   stop, race-free startup)
 - `wordlists.py` — wordlist parsing, combo building, cred-option merging
 - `dpapi.py` — DPAPI crypto shared by the dpapi_* modules (backup-key
-  loot loading, domain masterkey unwrap, credential decrypt; imports
-  are function-local so core stays stdlib-importable)
+  loot loading, domain masterkey unwrap, credential decrypt, system
+  masterkeys, WiFi XML; imports are function-local so core stays
+  stdlib-importable)
+- `regdump.py` — remote hive dump machinery shared by sam_dump and
+  dpapi_system (winreg save, verified cleanup, staging)
 - `report.py` — workspace → Markdown/JSON rendering (pure functions)
 - `config.py` — `config.toml` (tomllib) → workspace/color/setg
 - `log.py` — rotating debug log
