@@ -54,3 +54,28 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
 - handler: real payload → session → shell → cooperative stop — live
   sockets (no docker needed)
 - payloads/encoders — unit (+ generate when pwntools present)
+
+## Cold-rebuild validation (the honest test)
+
+Persistent lab state hides broken build scripts: every hand-fix you
+apply live makes the lab work while the script that should reproduce it
+drifts stale. The only test of the whole system is periodically:
+
+```
+lab purge <name>     # destroy volumes
+lab up <name>        # rebuild from the scripts, cold
+<run the e2e classes that cover it>
+```
+
+Rules the last cold-rebuild sweep taught (all now encoded):
+
+- Absence is a state too: lazily-created things (the CA's Policy
+  registry key) only fail at cold start — guard clauses built on
+  presence (`Test-Path`) silently skip them.
+- Readiness must be protocol-level, never `sleep` or bare TCP: a real
+  SMB login, a TDS login, an HTTP answer on /wsman, an LDAP bind, the
+  sentinel file. Readiness windows must cover the COLD case (a Windows
+  install is ~15-20 min, not 300s).
+- Tests must be state-independent: assert against values read live
+  (SIDs shift per provision), and lab tests that create objects clean
+  up in setUpClass or they poison the next run against persisted state.

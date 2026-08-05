@@ -230,6 +230,14 @@ never run both.
   the service. at_exec reports the denial cleanly; happy path needs a
   field/domain target. Also: `schtasks /s 127.0.0.1 /u user` is refused
   by design ("credentials are not allowed on the local machine").
+- **UAC token filtering blocks non-RID-500 local admins REMOTELY** —
+  on workgroup guests, labadmin (RID 1000) authenticates fine but every
+  privileged RPC (atsvc, parts of SCMR/WMI) is filtered. Only the
+  built-in Administrator (RID-500) and domain admins bypass it — and
+  dockur ships the RID-500 account DISABLED. The workstation oem
+  enables it with the lab password at install; enable it live with a
+  single-cmd service (`net user Administrator /active:yes` — the bat
+  chain never runs on Win11 anyway, see the session-0 entry).
 - **Win11 Defender kills the psexec pattern, and self-heals** — service
   -> cmd.exe chains are quarantined as `VirTool:Win32/MSFPsExecCommand`
   (Server 2022's Defender ignores the same chain). First symptom is
@@ -291,6 +299,15 @@ never run both.
   publish and even look enrollable, but every request dies with an
   empty disposition message (0x8007076D). Copy the values from a
   healthy template (esc4 does this from the stock User template).
+- **The CA's Policy registry key is lazy — and Set-ItemProperty mangles
+  MultiString** — a fresh CA has no `CertSvc\Configuration\<ca>\Policy`
+  key at all (it's created by the first publish), so `Test-Path` guards
+  silently skip cold builds. And writing the Templates list via
+  `Set-ItemProperty -Type MultiString` produces a concatenated ASCII
+  blob the policy module can't parse. Publish with
+  `certutil -SetCATemplates` (appends and writes the multi-sz
+  correctly); the "certutil fails with ERROR_TIME_SKEW on Samba" note
+  was the guest clock all along, which ForgeLabTimeSync fixes.
 - **certsvc caches templates — restart after EVERY change** (publish,
   attribute edit, SD edit), or enrollment sees the stale object. And
   `msPKI-Enrollment-Flag` bit 0x2 is CT_FLAG_PEND_ALL_REQUESTS:

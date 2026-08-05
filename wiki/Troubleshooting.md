@@ -67,3 +67,31 @@ lazily — see [[Modules#requirements]].
 **Integration tests all skip**
 Expected without docker running or with module deps missing — `-v` shows
 each skip's reason. `sudo systemctl start docker` to light them up.
+
+## Decomposing "no output" (the expensive error shape)
+
+Exec and RPC failures on Windows almost always present as pure silence.
+Different causes, identical symptom — bisect the chain artifact by
+artifact instead of guessing:
+
+1. **Does the service launch?** `service <name> launched` proves SCMR +
+   ADMIN$ + creds. Not it.
+2. **Do artifacts land?** Read the target's Temp over the share: the
+   .bat exists? Its content is right? (Console quoting eats backslashes
+   and quotes — echo the exact chain back and compare.)
+3. **Does the command even run?** `%ERRORLEVEL%` into the output file:
+   `cmd & echo EL=%ERRORLEVEL% > out`. EL=0 + empty output means it ran
+   and produced nothing (see the session-0 case below) — a different
+   bug than never running.
+4. **Does the flush survive?** The SCM reaps the service tree when the
+   parent exits. Local redirects die mid-flush on Server 2022 (hence
+   the bat+UNC shape); the UNC writeback is denied for SYSTEM on Win11.
+   Read the file over the share — existing-but-empty vs missing is the
+   signature.
+5. **Is it the platform, not you?** Win11's session 0: console exes
+   launched from a service write NOTHING (builtins echo fine; whoami /
+   ipconfig / powershell exit 0 silently). Confirm with `echo` vs
+   `whoami` — if builtins work and externals don't, it's the platform.
+
+Change one thing at a time and read the artifact after each. The chain
+tells you where it died if you ask it piece by piece.
