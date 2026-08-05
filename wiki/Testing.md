@@ -57,8 +57,10 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
 - windows lab: smb_exec, winrm_login/exec, coerce verdicts, sam_dump,
   proc_watch — integration
 - domain lab: member enums + at_exec clean denial, ESC1 (analyst mints an
-  Administrator cert from the real CA), ESC4 (reshape → enroll → restore) —
-  integration, incl. cold CA builds
+  Administrator cert from the real CA), ESC4 (reshape → enroll → restore),
+  dpapi_masterkeys (scheduled-task DPAPI fixture, domain-key unwrap over
+  SMB, proven by decrypting the live blob) — integration, incl. cold CA
+  builds
 - mssql lab: login, enum (sysadmin/links), xp_cmdshell Linux reporting,
   OPENQUERY through the link — integration
 - snmp lab: spray hits + honest silence — integration

@@ -255,6 +255,7 @@ class DpapiBackupKey(AuxiliaryModule):
 
         conn = SMBConnection(host, host, sess_port=445, timeout=20)
         conn.login(user, password, domain)
+        drsr = None
         try:
             ops = RemoteOperations(conn, doKerberos=False)
             ops._RemoteOperations__connectDrds()
@@ -302,6 +303,11 @@ class DpapiBackupKey(AuxiliaryModule):
             val = b"".join(val) if isinstance(val, list) else bytes(val)
             return unwrap_drs_secret(drsr.get_session_key(), val)
         finally:
+            if drsr is not None:
+                try:
+                    drsr.disconnect()
+                except Exception:
+                    pass
             conn.close()
 
 

@@ -41,8 +41,8 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding:
 
-- DPAPI stage 2: masterkey + blob decryption (Chrome/vault/WiFi) on top
-  of dpapi_backupkey
+- DPAPI stage 3: blob decryption (Chrome/vault/WiFi creds) on top of
+  dpapi_masterkeys' recovered keys
 - PKINIT against a Windows AD KDC in the field (the Samba lab KDC has
   none — module + error paths are done and proven)
 - forward relay (ntlmrelayx-class) on top of coerce + smb_capture

