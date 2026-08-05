@@ -23,6 +23,7 @@ and when to reach for it.
 - [[Labs]] — docker test targets: using them, adding your own
 - [[Testing]] — the test philosophy: unit, integration, docker gating
 - [[Development]] — repo layout, conventions, roadmap
+- [[Roadmap]] — the working backlog: scope, design notes, testing plans
 
 ## The map
 

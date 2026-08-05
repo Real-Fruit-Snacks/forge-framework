@@ -39,15 +39,11 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 ## Roadmap
 
-Depth, not scaffolding:
-
-- WiFi/system-scope DPAPI keys via DPAPI_SYSTEM (LSA secrets path)
-- PKINIT against a Windows AD KDC in the field (the Samba lab KDC has
-  none — module + error paths are done and proven)
-- forward relay (ntlmrelayx-class) on top of coerce + smb_capture
-- more encoders (hex, badchar-aware shellcode transforms)
-- pwntools exploit helpers (cyclic, ROP chains) for pwn work
-- C2-style session channels
+Depth, not scaffolding. The working backlog — scope, payoff, proven
+building blocks, design notes, testing plans — lives in [[Roadmap]].
+Highlights in flight order: forward relay (coerce → LDAP → RBCD → s4u),
+DPAPI stage 5 (system-scope keys), a Windows DC lab role (real PKINIT),
+encoders, pwntools helpers, C2-style session channels.
 
 ## Versioning
 
