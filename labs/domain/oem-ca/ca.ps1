@@ -21,10 +21,13 @@
 #      channel AT BIRTH — every domain logon then fails with "trust
 #      relationship failed". Reset-ComputerMachinePassword post-join
 #      renegotiates the channel with the strong values in force.
-#   5. Publish templates via the registry Templates list and RESTART
-#      certsvc: the CA caches template objects, so any template change
-#      (publish or attribute edit) is invisible to enrollment until the
-#      service restarts.
+#   5. Publish with certutil -SetCATemplates and RESTART certsvc: the CA
+#      caches template objects, so any template change (publish or
+#      attribute edit) is invisible to enrollment until the service
+#      restarts. Registry writes with Set-ItemProperty -Type MultiString
+#      mangle the list (concatenated ASCII, unparseable); the old
+#      "certutil fails with ERROR_TIME_SKEW" note was the guest clock,
+#      which ForgeLabTimeSync fixes on every boot.
 #   6. The VulnWeb template object already exists in the config NC
 #      (ad-lab fixture) — ENRICH it in place; don't create it. Its SD
 #      MUST carry an Authenticated-Users read ACE: without it the CA
@@ -199,19 +202,16 @@ if ($target.Guid) {
     $target.CommitChanges()
 }
 
-# --- publish on the CA (registry + restart — see note 5) ---------------
-$policyKey = "HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\forge-CA\Policy"
-if (Test-Path $policyKey) {
-    $current = @((Get-ItemProperty -Path $policyKey -Name Templates -ErrorAction SilentlyContinue).Templates)
-    foreach ($tmpl in @('VulnWeb', 'WeakWeb')) {
-        if ($current -notcontains $tmpl) {
-            Set-ItemProperty -Path $policyKey -Name Templates -Value ($current + $tmpl)
-            $current = @($current + $tmpl)
-        }
-    }
-    Restart-Service certsvc -ErrorAction Continue
-    Start-Sleep -Seconds 5
-}
+# --- publish on the CA --------------------------------------------------
+# certutil -SetCATemplates appends AND writes the multi-sz correctly —
+# Set-ItemProperty -Type MultiString mangles it (observed: a concatenated
+# ASCII blob the policy module can't parse). The old "certutil fails with
+# ERROR_TIME_SKEW on Samba" note predates ForgeLabTimeSync: it was the
+# guest clock, and that's fixed on every boot now.
+& certutil -SetCATemplates +VulnWeb 2>&1 | Out-String
+& certutil -SetCATemplates +WeakWeb 2>&1 | Out-String
+Restart-Service certsvc -ErrorAction Continue
+Start-Sleep -Seconds 5
 
 $svc = Get-Service certsvc -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'Running') {

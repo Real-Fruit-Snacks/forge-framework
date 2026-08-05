@@ -1056,9 +1056,9 @@ class TestWindowsLab(unittest.TestCase):
         cls.manager.up("windows")
         # READY's tcp check lies: docker-proxy accepts 1445 the moment the
         # container starts, minutes before the guest's SMB stack answers.
-        # Poll a real login (the guest boots from a persisted disk, so
-        # this is fast on second boots).
-        deadline = time.time() + 300
+        # Poll a real login — cold installs take ~15 min, persisted disks
+        # seconds, so the window covers the cold case.
+        deadline = time.time() + 1200
         while time.time() < deadline:
             try:
                 conn = SMBConnection(HOST, HOST, sess_port=1445, timeout=10)
@@ -1069,7 +1069,7 @@ class TestWindowsLab(unittest.TestCase):
                 time.sleep(5)
         else:
             cls.manager.down("windows")
-            raise RuntimeError("windows lab guest SMB not up within 300s")
+            raise RuntimeError("windows lab guest SMB not up within 1200s")
 
     @classmethod
     def tearDownClass(cls):

@@ -315,6 +315,14 @@ never run both.
   sqlservr's first boot (model/msdb creation) takes 60-90s, so a
   fixed sleep before the DDL is a coin flip. loop the command until
   it lands (mssql lab's link-init).
+- **Win11's session 0 kills SCMR exec output entirely** — console
+  executables launched from a service produce NOTHING (builtins like
+  echo work; whoami/ipconfig/powershell exit 0 and write nothing), and
+  the loopback admin share denies SYSTEM so the UNC writeback can't
+  land either. The bat chain "launches fine" and does nothing. Server
+  2022 has neither problem — smb_exec is Windows-Server-only (use
+  at_exec on Win11, whose atsvc ACL denies remote RegisterTask for
+  everyone on our guests anyway, and the module reports it cleanly).
 - **0x80070576 is ERROR_TIME_SKEW, not a missing-DC error** — the
   message "could not find required Active Directory information" is a
   red herring; the event log says it plainly ("time and/or date
