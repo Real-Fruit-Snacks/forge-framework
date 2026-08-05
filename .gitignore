@@ -8,3 +8,4 @@ _archive/
 build/
 sessionresume_*
 *.ccache
+PURSUIT.md
