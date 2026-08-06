@@ -20,6 +20,8 @@ forge (payloads/python_reverse_tcp) > generate
 | `payloads/powershell_reverse_tcp` | PowerShell one-liner (Windows) | nothing |
 | `payloads/shellcode_reverse_tcp` | null-free shellcode as a bytes literal (x86_64/i686/aarch64) | pwntools |
 | `payloads/encoders/base64_command` | `echo <b64> \| base64 -d \| sh` wrapper | nothing |
+| `payloads/encoders/hex_command` | `echo <hex> \| xxd -r -p \| sh` wrapper | nothing |
+| `payloads/encoders/badchar` | picks base64/hex/urlencode to avoid BADCHARS | nothing |
 | `payloads/encoders/ps_base64` | `powershell -enc` wrapper (UTF-16LE) | nothing |
 
 Chaining today is copy/paste: `generate` → paste into `set PAYLOAD '…'`

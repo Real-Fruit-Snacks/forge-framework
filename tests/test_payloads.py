@@ -72,6 +72,21 @@ class TestPayloadGeneration(unittest.TestCase):
         self.assertIn("%{0}", out)
         self.assertIn("$stream.Read($bytes, 0, $bytes.Length)) -ne 0){;", out)
 
+    def test_hex_command_encoder(self):
+        out = console_out(
+            self.console, "use payloads/encoders/hex_command",
+            "set PAYLOAD 'id; cat /etc/passwd'", "generate",
+        )
+        self.assertIn("xxd -r -p", out)
+
+    def test_badchar_encoder(self):
+        out = console_out(
+            self.console, "use payloads/encoders/badchar",
+            "set PAYLOAD 'id; cat /etc/passwd'",
+            "set BADCHARS '\\x00\\x0a'", "generate",
+        )
+        self.assertIn("echo", out)
+
 
 def free_port():
     with socket.socket() as s:

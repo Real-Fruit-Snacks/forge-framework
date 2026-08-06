@@ -41,8 +41,8 @@ moves to core (`wordlists.py`, `brute.py` precedent).
 
 Depth, not scaffolding. The working backlog — scope, payoff, proven
 building blocks, design notes, testing plans — lives in [[Roadmap]].
-Highlights in flight order: encoders, pwntools helpers, C2-style
-session channels, the console `set` raw-value fix.
+Highlights in flight order: pwntools helpers, C2-style session
+channels, the console `set` raw-value fix.
 
 ## Versioning
 

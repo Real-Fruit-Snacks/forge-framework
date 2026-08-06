@@ -9,25 +9,7 @@ item ships, delete it here and update [[Development]]'s roadmap pointer.
 The bar for every item: real modules against real labs, proven on the
 artifact itself — no mocked crypto, no "it should work".
 
-## 1. More encoders (hex, badchar-aware)
-
-**Scope.** Extend modules/payloads/ encoder set: plain hex encode, and
-a badchar-aware transform that takes a BADCHARS option and picks an
-encoding that avoids those bytes in the generated shellcode.
-
-**Payoff.** Practical pwn/BOF work; the encoder slot exists, this is
-filling it.
-
-**Design notes.** The existing encoder modules define the interface —
-match it. Badchar-aware = validate output against BADCHARS post-encode
-and refuse loudly when the alphabet can't satisfy it (verify the
-artifact). Keep transforms dependency-free (stdlib) unless shikata is
-explicitly added later.
-
-**Testing plan.** Unit: roundtrip + badchar assertion on generated
-bytes; generate-path e2e already exists for payloads — extend it.
-
-## 2. pwntools exploit helpers
+## 1. pwntools exploit helpers
 
 **Scope.** Modules wrapping pwntools for pwn work: `pwn/cyclic`
 (pattern gen + offset find against a crash input), `pwn/rop` (ROP chain
@@ -45,7 +27,7 @@ Cyclic is pure computation (easy, do first). ROP needs a target binary
 pwntools presence against a tiny fixture ELF (compile in-test with gcc
 when available, skip otherwise — no committed binaries).
 
-## 3. C2-style session channels
+## 2. C2-style session channels
 
 **Scope.** Beaconing sessions on top of the handler: poll-based
 HTTP(S)/named-pipe channels with jitter + a task queue per session,
@@ -66,7 +48,7 @@ generator modules so `generate` emits a beacon one-liner.
 against a fixture listener, assert task/result round-trip through real
 HTTP on the web lab.
 
-## 4. Console `set` raw-value semantics
+## 3. Console `set` raw-value semantics
 
 **Scope.** core/console.py `do_set`: today `shlex.split` eats
 backslashes, so `set COMMAND ... C:\Users\...` arrives mangled
