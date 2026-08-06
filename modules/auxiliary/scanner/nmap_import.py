@@ -13,10 +13,13 @@ from core.options import OptBool, OptString
 
 
 def parse_nmap_xml(xml_text):
-    """Return a list of (address, hostname, services) tuples from nmap XML.
+    """Return a list of (address, hostname, services, os_matches, scripts)
+    tuples from nmap XML.
 
-    services is a list of (proto, port, name, info) where info combines
-    product/version/extrainfo when present.
+    services is a list of (proto, port, name, info).
+    os_matches is a list of (name, accuracy) strings from -O detection.
+    scripts is a list of (target, script_id, output) for NSE output, where
+    target is 'host' or '<proto>/<port>'.
     """
     results = []
     root = ET.fromstring(xml_text)
@@ -42,6 +45,7 @@ def parse_nmap_xml(xml_text):
                     break
 
         services = []
+        scripts = []
         ports = host.find("ports")
         if ports is not None:
             for port in ports.findall("port"):
@@ -67,30 +71,67 @@ def parse_nmap_xml(xml_text):
                 info = " ".join(info_parts)
                 services.append((proto, portid, name, info))
 
-        results.append((address, hostname, services))
+                target = f"{proto}/{portid}"
+                for script in port.findall("script"):
+                    script_id = script.get("id", "")
+                    output = script.get("output", "")
+                    if script_id:
+                        scripts.append((target, script_id, output))
+
+        os_matches = []
+        os_elem = host.find("os")
+        if os_elem is not None:
+            for match in os_elem.findall("osmatch"):
+                name = match.get("name", "")
+                accuracy = match.get("accuracy", "")
+                if name:
+                    os_matches.append((name, accuracy))
+
+        hostscripts = host.find("hostscript")
+        if hostscripts is not None:
+            for script in hostscripts.findall("script"):
+                script_id = script.get("id", "")
+                output = script.get("output", "")
+                if script_id:
+                    scripts.append(("host", script_id, output))
+
+        results.append((address, hostname, services, os_matches, scripts))
     return results
 
 
 def _import_results(store, results, source=""):
-    """Write parsed nmap results into hosts/services tables."""
+    """Write parsed nmap results into hosts/services tables and OS/script
+    details into loot."""
     hosts_added = 0
     services_added = 0
-    for address, hostname, services in results:
+    loot_added = 0
+    for address, hostname, services, os_matches, scripts in results:
         store.add_host(address, hostname)
         hosts_added += 1
         for proto, port, name, info in services:
             store.add_service(address, port, proto=proto, name=name, info=info)
             services_added += 1
-    return hosts_added, services_added
+        for name, accuracy in os_matches:
+            label = f"{address} os"
+            content = f"{name} (accuracy {accuracy}%)"
+            store.add_loot("nmap-os", label, content, address=address)
+            loot_added += 1
+        for target, script_id, output in scripts:
+            label = f"{address} {target} {script_id}"
+            store.add_loot("nmap-script", label, output, address=address)
+            loot_added += 1
+    return hosts_added, services_added, loot_added
 
 
 class NmapImport(AuxiliaryModule):
     name = "nmap XML Import"
     description = """
         Reads an nmap -oX XML file and imports live hosts, hostnames, and
-        open services into the workspace store. The raw XML can also be
-        saved as loot for evidence. This does not run nmap; use nmap_scan
-        for that, or run nmap yourself and import the XML here.
+        open services into the workspace store. OS detection (-O) and NSE
+        script output (-sC / -A) are saved as loot (types nmap-os and
+        nmap-script). The raw XML can also be saved as loot for evidence.
+        This does not run nmap; use nmap_scan for that, or run nmap
+        yourself and import the XML here.
     """
     authors = ["you"]
 
@@ -123,18 +164,20 @@ class NmapImport(AuxiliaryModule):
             self.print_error("No workspace store available")
             return
 
-        hosts_added, services_added = _import_results(store, results)
+        hosts_added, services_added, loot_added = _import_results(store, results)
 
         if self.get_option("SAVE_LOOT"):
             try:
                 store.add_loot_file("nmap", path.name, path)
                 self.print_status(f"Raw XML saved to loot ({path.name})")
+                loot_added += 1
             except ValueError:
                 # Store has no loot_dir; store content inline instead.
                 store.add_loot("nmap", path.name, xml_text, address="")
                 self.print_status(f"Raw XML saved to loot ({path.name}, inline)")
+                loot_added += 1
 
         self.print_good(
-            f"Imported {hosts_added} host(s) and {services_added} service(s) "
-            "from nmap XML"
+            f"Imported {hosts_added} host(s), {services_added} service(s), "
+            f"and {loot_added} nmap detail loot item(s) from nmap XML"
         )

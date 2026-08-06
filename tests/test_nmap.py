@@ -35,6 +35,7 @@ SAMPLE_XML = """\
       <port protocol="tcp" portid="22">
         <state state="open"/>
         <service name="ssh" product="OpenSSH" version="8.2"/>
+        <script id="ssh-hostkey" output="RSA key fingerprint"/>
       </port>
       <port protocol="tcp" portid="80">
         <state state="open"/>
@@ -45,6 +46,13 @@ SAMPLE_XML = """\
         <service name="https"/>
       </port>
     </ports>
+    <os>
+      <osmatch name="Linux 5.4" accuracy="98"/>
+      <osmatch name="Linux 5.x" accuracy="94"/>
+    </os>
+    <hostscript>
+      <script id="smb-security-mode" output="account_used: guest"/>
+    </hostscript>
   </host>
   <host>
     <status state="down"/>
@@ -61,12 +69,22 @@ class TestParseNmapXml(unittest.TestCase):
     def test_parses_up_host_services_and_hostname(self):
         results = nmap_import.parse_nmap_xml(SAMPLE_XML)
         self.assertEqual(len(results), 1)
-        address, hostname, services = results[0]
+        address, hostname, services, os_matches, scripts = results[0]
         self.assertEqual(address, "192.168.1.1")
         self.assertEqual(hostname, "router.local")
         self.assertEqual(len(services), 2)
         self.assertEqual(services[0], ("tcp", 22, "ssh", "OpenSSH 8.2"))
         self.assertEqual(services[1], ("tcp", 80, "http", "nginx ubuntu"))
+
+    def test_parses_os_matches_and_scripts(self):
+        results = nmap_import.parse_nmap_xml(SAMPLE_XML)
+        self.assertEqual(len(results), 1)
+        _address, _hostname, _services, os_matches, scripts = results[0]
+        self.assertEqual(os_matches, [("Linux 5.4", "98"), ("Linux 5.x", "94")])
+        self.assertEqual(scripts, [
+            ("tcp/22", "ssh-hostkey", "RSA key fingerprint"),
+            ("host", "smb-security-mode", "account_used: guest"),
+        ])
 
     def test_ignores_down_hosts(self):
         results = nmap_import.parse_nmap_xml(SAMPLE_XML)
@@ -102,6 +120,11 @@ class TestNmapImport(unittest.TestCase):
             self.assertEqual(services[0]["port"], 22)
             self.assertEqual(services[0]["name"], "ssh")
             self.assertEqual(services[1]["info"], "nginx ubuntu")
+
+            loot = self.store.loot()
+            types = [r["type"] for r in loot]
+            self.assertIn("nmap-os", types)
+            self.assertIn("nmap-script", types)
         finally:
             tmp_path.unlink(missing_ok=True)
 

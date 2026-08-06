@@ -21,9 +21,10 @@ class NmapScan(AuxiliaryModule):
     name = "nmap Scan + Import"
     description = """
         Runs nmap against the target spec and imports the XML results into
-        the workspace store. Requires the nmap binary on PATH. Default
-        args are -sS -sV; adjust with NMAP_ARGS. The raw XML is saved as
-        loot for evidence.
+        the workspace store. Open services, OS detection (-O), and NSE
+        script output (-sC / -A) are imported. Requires the nmap binary on
+        PATH. Default args are -sS -sV; adjust with NMAP_ARGS. The raw XML
+        is saved as loot for evidence.
     """
     authors = ["you"]
 
@@ -83,7 +84,7 @@ class NmapScan(AuxiliaryModule):
             self.print_error("No workspace store available")
             return
 
-        hosts_added, services_added = _import_results(store, results)
+        hosts_added, services_added, loot_added = _import_results(store, results)
 
         if self.get_option("SAVE_LOOT"):
             try:
@@ -99,6 +100,6 @@ class NmapScan(AuxiliaryModule):
                 self.print_status("Raw XML saved to loot (nmap-scan.xml, inline)")
 
         self.print_good(
-            f"Imported {hosts_added} host(s) and {services_added} service(s) "
-            "from nmap"
+            f"Imported {hosts_added} host(s), {services_added} service(s), "
+            f"and {loot_added} nmap detail loot item(s) from nmap"
         )
