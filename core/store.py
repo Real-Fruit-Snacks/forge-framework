@@ -263,6 +263,43 @@ class Store:
             self._db.commit()
             return cur.rowcount > 0
 
+    def delete_host(self, address: str) -> bool:
+        """Delete a host and all its services from the current workspace."""
+        with self._lock:
+            self._db.execute(
+                "DELETE FROM services WHERE workspace = ? AND address = ?",
+                (self.workspace, address),
+            )
+            cur = self._db.execute(
+                "DELETE FROM hosts WHERE workspace = ? AND address = ?",
+                (self.workspace, address),
+            )
+            self._db.commit()
+            return cur.rowcount > 0
+
+    def delete_service(self, address: str, port: int,
+                       proto: str = "tcp") -> bool:
+        """Delete one service row from the current workspace."""
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM services WHERE workspace = ? AND address = ? "
+                "AND port = ? AND proto = ?",
+                (self.workspace, address, int(port), proto),
+            )
+            self._db.commit()
+            return cur.rowcount > 0
+
+    def clear_workspace(self) -> None:
+        """Delete every host, service, loot, and cred in the current
+        workspace."""
+        with self._lock:
+            for table in ("hosts", "services", "loot", "creds"):
+                self._db.execute(
+                    f"DELETE FROM {table} WHERE workspace = ?",
+                    (self.workspace,),
+                )
+            self._db.commit()
+
     def close(self) -> None:
         with self._lock:
             self._db.close()

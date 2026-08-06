@@ -13,6 +13,7 @@ import cmd
 import glob
 import os
 import shlex
+import sys
 import textwrap
 import traceback
 from pathlib import Path
@@ -175,6 +176,19 @@ class FrameworkConsole(cmd.Cmd):
         output.print_line(output.style(rule, output.TEXT_FAINT))
         for row in rows:
             output.print_line(pad + "  ".join(c.ljust(w) for c, w in zip(row, widths)))
+
+    def _confirm(self, prompt: str, force: bool = False) -> bool:
+        """Ask the user for confirmation. If force is True or stdin is not
+        a TTY, skip the prompt and return the force value."""
+        if force:
+            return True
+        if not sys.stdin.isatty():
+            return False
+        try:
+            answer = input(output.style(prompt, output.WARM))
+        except EOFError:
+            return False
+        return answer.strip().lower() in ("y", "yes")
 
     # ------------------------------------------------------ module: load/unload
     def do_use(self, arg: str) -> None:
@@ -509,26 +523,87 @@ class FrameworkConsole(cmd.Cmd):
 
     # --------------------------------------------------------------- data store
     def do_hosts(self, arg: str) -> None:
-        """List known hosts in the current workspace."""
-        hosts = self.store.hosts()
-        if not hosts:
-            output.print_line("No hosts recorded yet.")
+        """List or delete hosts: hosts | hosts -d <address> | hosts -D [-y]"""
+        parts = self._split(arg)
+        if parts is None:
             return
-        rows = [(h["address"], h["name"]) for h in hosts]
-        self._print_table(["Address", "Name"], rows)
+        if not parts:
+            hosts = self.store.hosts()
+            if not hosts:
+                output.print_line("No hosts recorded yet.")
+                return
+            rows = [(h["address"], h["name"]) for h in hosts]
+            self._print_table(["Address", "Name"], rows)
+            return
+        if parts[0] == "-d" and len(parts) >= 2:
+            address = parts[1]
+            force = "-y" in parts
+            if not self._confirm(
+                    f"Delete host {address} and its services? [y/N] ", force):
+                output.print_status("Cancelled")
+                return
+            if self.store.delete_host(address):
+                output.print_good(f"Deleted host {address}")
+            else:
+                output.print_error(f"No host {address} in this workspace")
+            return
+        if parts[0] == "-D":
+            force = "-y" in parts
+            hosts = self.store.hosts()
+            if not hosts:
+                output.print_line("No hosts recorded yet.")
+                return
+            if not self._confirm(
+                    f"Delete all {len(hosts)} host(s) in workspace "
+                    f"'{self.store.workspace}'? [y/N] ", force):
+                output.print_status("Cancelled")
+                return
+            for host in hosts:
+                self.store.delete_host(host["address"])
+            output.print_good(f"Deleted {len(hosts)} host(s)")
+            return
+        output.print_error(
+            "Usage: hosts | hosts -d <address> [-y] | hosts -D [-y]")
 
     def do_services(self, arg: str) -> None:
-        """List recorded services: services [address]"""
-        address = arg.strip() or None
-        services = self.store.services(address)
-        if not services:
-            output.print_line("No services recorded yet.")
+        """List or delete services: services [address] | services -d <address> <port> [proto] [-y]"""
+        parts = self._split(arg)
+        if parts is None:
             return
-        rows = [
-            (s["address"], s["port"], s["proto"], s["name"], s["info"])
-            for s in services
-        ]
-        self._print_table(["Host", "Port", "Proto", "Name", "Info"], rows)
+        if not parts or (len(parts) == 1 and not parts[0].startswith("-")):
+            address = parts[0] if parts else None
+            services = self.store.services(address)
+            if not services:
+                output.print_line("No services recorded yet.")
+                return
+            rows = [
+                (s["address"], s["port"], s["proto"], s["name"], s["info"])
+                for s in services
+            ]
+            self._print_table(["Host", "Port", "Proto", "Name", "Info"], rows)
+            return
+        if parts[0] == "-d" and len(parts) >= 3:
+            address = parts[1]
+            try:
+                port = int(parts[2])
+            except ValueError:
+                output.print_error(f"Bad port: {parts[2]}")
+                return
+            proto = parts[3] if len(parts) >= 4 and parts[3] != "-y" else "tcp"
+            force = "-y" in parts
+            if not self._confirm(
+                    f"Delete service {address}:{port}/{proto}? [y/N] ", force):
+                output.print_status("Cancelled")
+                return
+            if self.store.delete_service(address, port, proto):
+                output.print_good(f"Deleted service {address}:{port}/{proto}")
+            else:
+                output.print_error(
+                    f"No service {address}:{port}/{proto} in this workspace")
+            return
+        output.print_error(
+            "Usage: services [address] | services -d <address> <port> "
+            "[tcp|udp] [-y]")
 
     def do_report(self, arg: str) -> None:
         """Export the workspace: report [file.md | file.json] (no arg = print)"""
@@ -552,15 +627,26 @@ class FrameworkConsole(cmd.Cmd):
         output.print_good(f"Report written to {path}")
 
     def do_creds(self, arg: str) -> None:
-        """List stored credentials: creds [host] | creds -d <id>"""
+        """List stored credentials: creds [host] | creds -d <id> [-y]"""
         parts = self._split(arg)
         if parts is None:
             return
-        if len(parts) == 2 and parts[0] == "-d":
+        if len(parts) >= 2 and parts[0] == "-d":
             try:
                 cid = int(parts[1])
             except ValueError:
                 output.print_error(f"Bad cred id: {parts[1]}")
+                return
+            force = "-y" in parts
+            entry = next((c for c in self.store.creds() if c["id"] == cid), None)
+            if entry is None:
+                output.print_error(f"No cred {cid} in this workspace")
+                return
+            summary = (f"{entry['username']}:{entry['password']} on "
+                       f"{entry['address']} ({entry['service']})")
+            if not self._confirm(
+                    f"Delete cred {cid} ({summary})? [y/N] ", force):
+                output.print_status("Cancelled")
                 return
             if self.store.delete_cred(cid):
                 output.print_good(f"Deleted cred {cid}")
@@ -630,7 +716,7 @@ class FrameworkConsole(cmd.Cmd):
             loot_id = self.store.add_loot(parts[1], parts[2], " ".join(parts[3:]))
             output.print_good(f"Saved loot {loot_id}")
             return
-        if len(parts) == 2 and parts[0] == "-d":
+        if len(parts) >= 2 and parts[0] == "-d":
             try:
                 lid = int(parts[1])
             except ValueError:
@@ -639,6 +725,12 @@ class FrameworkConsole(cmd.Cmd):
             entry = self.store.loot_get(lid)
             if entry is None:
                 output.print_error(f"No loot {lid} in this workspace")
+                return
+            force = "-y" in parts
+            label = entry["label"] or f"loot {lid}"
+            if not self._confirm(
+                    f"Delete loot {lid} ({label})? [y/N] ", force):
+                output.print_status("Cancelled")
                 return
             content = entry["content"]
             if not self.store.delete_loot(lid):
@@ -655,18 +747,33 @@ class FrameworkConsole(cmd.Cmd):
                     output.print_warning(f"Loot file already gone: {blob}")
             return
         output.print_error(
-            "Usage: loot [-t type] | -i <id> | -d <id> | -a <type> <label> <text>"
+            "Usage: loot [-t type] | -i <id> | -d <id> [-y] | "
+            "-a <type> <label> <text> | -f <type> <label> <file>"
         )
 
     def do_workspace(self, arg: str) -> None:
-        """List workspaces, or switch: workspace [name]"""
-        name = arg.strip()
-        if not name:
+        """List, switch, or clear workspaces: workspace [name] | workspace --clear [-y]"""
+        parts = self._split(arg)
+        if parts is None:
+            return
+        if not parts:
             current = self.store.workspace
             for ws in self.store.workspaces():
                 marker = "*" if ws == current else " "
                 output.print_line(f"{marker} {ws}")
             return
+        if parts[0] in ("--clear", "-c"):
+            force = "-y" in parts
+            if not self._confirm(
+                    f"Clear all data in workspace '{self.store.workspace}'? "
+                    f"[y/N] ", force):
+                output.print_status("Cancelled")
+                return
+            self.store.clear_workspace()
+            output.print_good(
+                f"Cleared workspace '{self.store.workspace}'")
+            return
+        name = parts[0]
         try:
             self.store.set_workspace(name)
         except ValueError as e:

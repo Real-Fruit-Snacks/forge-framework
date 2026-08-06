@@ -290,6 +290,55 @@ class TestDataCommands(unittest.TestCase):
     def tearDown(self):
         self.console.store.close()
 
+    def test_hosts_empty(self):
+        out = run(self.console, "hosts")
+        self.assertIn("No hosts recorded yet.", out)
+
+    def test_hosts_delete(self):
+        self.console.store.add_host("10.0.0.1", "box1")
+        self.console.store.add_service("10.0.0.1", 80, name="http")
+        out = run(self.console, "hosts -d 10.0.0.1 -y", "hosts")
+        self.assertIn("Deleted host 10.0.0.1", out)
+        self.assertIn("No hosts recorded yet.", out)
+        self.assertEqual(self.console.store.services(), [])
+
+    def test_hosts_delete_all(self):
+        self.console.store.add_host("10.0.0.1")
+        self.console.store.add_host("10.0.0.2")
+        out = run(self.console, "hosts -D -y", "hosts")
+        self.assertIn("Deleted 2 host(s)", out)
+        self.assertIn("No hosts recorded yet.", out)
+
+    def test_services_delete(self):
+        self.console.store.add_service("10.0.0.1", 80, name="http")
+        out = run(self.console, "services -d 10.0.0.1 80 -y", "services")
+        self.assertIn("Deleted service 10.0.0.1:80/tcp", out)
+        self.assertIn("No services recorded yet.", out)
+
+    def test_workspace_clear(self):
+        self.console.store.add_host("10.0.0.1")
+        self.console.store.add_service("10.0.0.1", 80)
+        self.console.store.add_cred("10.0.0.1", "http", "admin", "admin")
+        out = run(self.console, "workspace --clear -y")
+        self.assertIn("Cleared workspace", out)
+        self.assertEqual(self.console.store.hosts(), [])
+        self.assertEqual(self.console.store.services(), [])
+        self.assertEqual(self.console.store.creds(), [])
+
+    def test_destructive_commands_cancel_without_force_flag(self):
+        # Non-TTY stdin means _confirm returns False unless -y is given.
+        self.console.store.add_host("10.0.0.1")
+        self.console.store.add_loot("note", "x", "y")
+        self.console.store.add_cred("10.0.0.1", "http", "a", "b")
+        run(self.console, "hosts -d 10.0.0.1")
+        run(self.console, "workspace --clear")
+        run(self.console, "loot -d 1")
+        self.console.store.add_cred("10.0.0.1", "http", "a", "b")
+        run(self.console, "creds -d 1")
+        self.assertEqual(len(self.console.store.hosts()), 1)
+        self.assertEqual(len(self.console.store.loot()), 1)
+        self.assertEqual(len(self.console.store.creds()), 1)
+
     def test_creds_empty(self):
         out = run(self.console, "creds")
         self.assertIn("No credentials stored yet.", out)
@@ -305,14 +354,15 @@ class TestDataCommands(unittest.TestCase):
     def test_creds_delete(self):
         self.console.store.add_cred("10.0.0.1", "ssh", "admin", "admin", "test")
         cid = self.console.store.creds()[0]["id"]
-        out = run(self.console, f"creds -d {cid}", "creds")
+        out = run(self.console, f"creds -d {cid} -y", "creds")
         self.assertIn(f"Deleted cred {cid}", out)
         self.assertIn("No credentials stored yet.", out)
-        out = run(self.console, f"creds -d {cid}")
+        out = run(self.console, f"creds -d {cid} -y")
         self.assertIn("No cred", out)
 
     def test_loot_delete(self):
-        out = run(self.console, 'loot -a note tmp "junk entry"', "loot -d 1", "loot")
+        out = run(self.console, 'loot -a note tmp "junk entry"',
+                  "loot -d 1 -y", "loot")
         self.assertIn("Deleted loot 1", out)
         self.assertIn("No loot recorded yet.", out)
 
@@ -343,7 +393,7 @@ class TestDataCommands(unittest.TestCase):
                                                  loot_dir=Path(tmp) / "blobs")
             run(self.console, f"loot -f file ssh-key {src}")
             blob = next((Path(tmp) / "blobs").iterdir())
-            out = run(self.console, "loot -d 1")
+            out = run(self.console, "loot -d 1 -y")
             self.assertIn("Deleted loot 1", out)
             self.assertIn("Deleted loot file", out)
             self.assertFalse(blob.exists())

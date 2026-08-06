@@ -69,14 +69,19 @@ remote live (SIGWINCH, Penelope-style).
 | Command | What it does |
 |---|---|
 | `hosts` | Known hosts (current workspace) |
+| `hosts -d <address> [-y]` | Delete a host and its services (asks `y/N`; `-y` skips) |
+| `hosts -D [-y]` | Delete every host in the workspace (asks `y/N`; `-y` skips) |
 | `services [addr]` | Recorded services, optionally one host |
-| `creds [host]` / `creds -d <id>` | Valid credentials; login modules try these first |
+| `services -d <addr> <port> [tcp\|udp] [-y]` | Delete one service (asks `y/N`; `-y` skips) |
+| `creds [host]` | Valid credentials; login modules try these first |
+| `creds -d <id> [-y]` | Delete a credential (asks `y/N`; `-y` skips) |
 | `loot` / `-t <type>` | List findings |
 | `loot -i <id>` | Show one entry (prints file contents for file loot) |
 | `loot -a <type> <label> <text>` | Add a text note |
 | `loot -f <type> <label> <path>` | Add a file (copied into `~/.forge/loot/`) |
-| `loot -d <id>` | Delete (file loot: deletes the blob on disk too) |
+| `loot -d <id> [-y]` | Delete (file loot: deletes the blob on disk too; asks `y/N`; `-y` skips) |
 | `workspace [name]` | List or switch/create workspaces (per-engagement data) |
+| `workspace --clear [-y]` / `workspace -c [-y]` | Delete all data in the current workspace (asks `y/N`; `-y` skips) |
 | `report [file.md\|file.json]` | Export the workspace; no arg prints to screen |
 
 ## Labs
