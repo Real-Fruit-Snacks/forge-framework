@@ -87,16 +87,16 @@ python3 build.py --preset ad  # the AD/SMB toolkit only
  | |_ | | | | |_) | |  _|  _|
  |  _|| |_| |  _ <| |_| | |___
  |_|   \___/|_| \_\\____|_____|
-       forge v0.6 -- offensive-security framework
+       FORGE v0.6 -- offensive-security framework
 + -- --=[ 78 modules loaded
 
-forge > lab up web
-forge > use auxiliary/scanner/dir_buster
-forge (auxiliary/scanner/dir_buster) > set RHOSTS 127.0.0.1
-forge (auxiliary/scanner/dir_buster) > set RPORT 18080
-forge (auxiliary/scanner/dir_buster) > set WORDLIST labs/web/wordlists/dirs.txt
-forge (auxiliary/scanner/dir_buster) > set RECURSE true
-forge (auxiliary/scanner/dir_buster) > run
+FORGE > lab up web
+FORGE > use auxiliary/scanner/dir_buster
+FORGE (auxiliary/scanner/dir_buster) > set RHOSTS 127.0.0.1
+FORGE (auxiliary/scanner/dir_buster) > set RPORT 18080
+FORGE (auxiliary/scanner/dir_buster) > set WORDLIST labs/web/wordlists/dirs.txt
+FORGE (auxiliary/scanner/dir_buster) > set RECURSE true
+FORGE (auxiliary/scanner/dir_buster) > run
 ```
 
 Catch a reverse shell:

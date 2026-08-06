@@ -92,7 +92,7 @@ class FrameworkConsole(cmd.Cmd):
     def print_banner(self) -> None:
         output.print_line(output.style(BANNER.rstrip("\n"), output.ACCENT, bold=True))
         output.print_line(output.style(
-            "       forge v0.6 -- offensive-security framework",
+            "       FORGE v0.6 -- offensive-security framework",
             output.ACCENT, bold=True,
         ))
         output.print_line(output.style(
@@ -108,11 +108,12 @@ class FrameworkConsole(cmd.Cmd):
 
     # ------------------------------------------------------------------ prompt
     def _update_prompt(self) -> None:
+        prefix = output.rl_style("FORGE", output.ACCENT)
         if self.module_path:
             path = output.rl_style(self.module_path, output.ACCENT)
-            self.prompt = f"forge ({path}) > "
+            self.prompt = f"{prefix} ({path}) > "
         else:
-            self.prompt = "forge > "
+            self.prompt = f"{prefix} > "
 
     def postcmd(self, stop: bool, line: str) -> bool:
         """Announce jobs that finished and sessions that opened."""
