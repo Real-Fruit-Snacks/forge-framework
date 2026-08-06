@@ -39,7 +39,7 @@ try:
     )
     from impacket.krb5.ccache import CCache
     from impacket.krb5.crypto import Key, _enctype_table
-    from impacket.krb5.kerberosv5 import sendReceive
+    from impacket.krb5.kerberosv5 import sendReceive, KerberosError
     from impacket.krb5.pac import (
         NTLM_SUPPLEMENTAL_CREDENTIAL,
         PAC_CREDENTIAL_DATA,
@@ -158,7 +158,11 @@ def _read_tlv(data, pos=0):
 # PKINIT structures
 
 def build_authpack(req_body_der, dh_pub, client_nonce, nonce, moment):
-    """AuthPack ::= { pkAuthenticator, [0] SPKI, [2] clientDHNonce }."""
+    """AuthPack ::= SEQUENCE { [0] PKAuthenticator, [1] SPKI,
+    [3] clientDHNonce } — every field is context-tagged, including the
+    outer pkAuthenticator (an untagged pkAuthenticator with the SPKI at
+    [0] parses as garbage on the KDC — the PKAUTH is then "untrusted",
+    surfaced as KRB_ERR_GENERIC with empty e-text)"""
     pk_auth = _seq(
         _ctx(0, _int(moment.microsecond)) +
         _ctx(1, _gtime(moment)) +
@@ -167,7 +171,8 @@ def build_authpack(req_body_der, dh_pub, client_nonce, nonce, moment):
     spki = _seq(
         _seq(_oid(OID_DH) + _seq(_int(DH_P) + _int(DH_G) + _int(0))) +
         _bitstring(_int(dh_pub)))
-    return _seq(pk_auth + _ctx(0, spki) + _ctx(2, _octet(client_nonce)))
+    return _seq(_ctx(0, pk_auth) + _ctx(1, spki) +
+                _ctx(3, _octet(client_nonce)))
 
 
 def cms_signed_data(content_der, content_oid, cert, key):
@@ -175,15 +180,22 @@ def cms_signed_data(content_der, content_oid, cert, key):
     the exact SignedData shape Windows' KDC validates."""
     digest = hashlib.sha1(content_der).digest()
     encap = _seq(_oid(content_oid) + _ctx(0, _octet(content_der)))
-    attrs = _set(
-        _seq(_oid(OID_CONTENT_TYPE) + _set(_oid(content_oid))) +
-        _seq(_oid(OID_MESSAGE_DIGEST) + _set(_octet(digest))))
-    signature = key.sign(attrs, padding.PKCS1v15(), hashes.SHA1())
+    # The two CMS interop traps, both verified against a 2022 KDC: the
+    # signedAttrs FIELD must be [0] IMPLICIT with the attributes inline
+    # (double-tagging it as [0]{SET{...}} fails decode), and the
+    # signature input must be the UNIVERSAL SET-tagged encoding of the
+    # attrs — Windows crypt32 computes it over the SET form, not the
+    # RFC 5652 implicit-tag form, and a mismatch surfaces as
+    # "client not trusted" (error 60, empty e-text)
+    attrs_body = (_seq(_oid(OID_CONTENT_TYPE) + _set(_oid(content_oid))) +
+                  _seq(_oid(OID_MESSAGE_DIGEST) + _set(_octet(digest))))
+    signature = key.sign(_set(attrs_body), padding.PKCS1v15(),
+                         hashes.SHA1())
     signer = _seq(
         _int(1) +
         _seq(cert.issuer.public_bytes() + _int(cert.serial_number)) +
         _seq(_oid(OID_SHA1) + _null()) +
-        _ctx(0, attrs) +
+        _ctx(0, attrs_body) +
         _seq(_oid(OID_RSA) + _null()) +
         _octet(signature))
     cert_der = cert.public_bytes(serialization.Encoding.DER)
@@ -197,9 +209,12 @@ def cms_signed_data(content_der, content_oid, cert, key):
 
 
 def build_pa_pk_as_req(authpack_der, cert, key):
-    """PA-PK-AS-REQ padata-value ::= SEQUENCE { [0] ContentInfo }."""
+    """PA-PK-AS-REQ padata-value ::= SEQUENCE { [0] IMPLICIT OCTET STRING }.
+
+    The tag must be primitive (0x80), not constructed (0xa0): a 2022 KDC
+    rejects the EXPLICIT form with KRB_ERR_GENERIC and empty e-text."""
     cms = cms_signed_data(authpack_der, OID_PKINIT_AUTH, cert, key)
-    return _seq(_ctx(0, cms))
+    return _seq(_tlv(0x80, cms))
 
 
 def truncate_key(value, size):
@@ -214,15 +229,19 @@ def truncate_key(value, size):
 
 def parse_dh_rep_info(data):
     """(kdc_pub, server_nonce) out of PA-PK-AS-REP's padata-value:
+    PA-PK-AS-REP ::= CHOICE { dhInfo [0] DHRepInfo, ... } and
     DHRepInfo ::= SEQUENCE { [0] ContentInfo, [1] DHNonce OPTIONAL }."""
     tag, body, _ = _read_tlv(data)
+    if tag == 0xA0:
+        # unwrap the [0] EXPLICIT dhInfo wrapper
+        tag, body, _ = _read_tlv(body)
     assert tag == 0x30, "DHRepInfo must be a SEQUENCE"
     server_nonce = b""
     kdc_pub = None
     pos = 0
     while pos < len(body):
         tag, content, pos = _read_tlv(body, pos)
-        if tag == 0xA0:  # dhSignedData ContentInfo
+        if tag in (0x80, 0xA0):  # dhSignedData ContentInfo (implicit/explicit)
             kdc_pub = _extract_kdc_pub(content)
         elif tag == 0xA1:
             _t, server_nonce, _ = _read_tlv(content)
@@ -230,7 +249,11 @@ def parse_dh_rep_info(data):
 
 
 def _extract_kdc_pub(content_info):
-    """Pull subjectPublicKey out of the KDC's signed KDCDHKeyInfo."""
+    """Pull subjectPublicKey out of the KDC's signed KDCDHKeyInfo.
+
+    Windows 2022 encodes the CMS eContent as IMPLICIT OCTET STRING (the
+    KDCDHKeyInfo SEQUENCE rides directly), while the explicit form wraps
+    it in an OCTET STRING. Accept either by sniffing the first byte."""
     tag, sdata, _ = _read_tlv(content_info)  # ContentInfo SEQUENCE
     assert tag == 0x30
     pos = 0
@@ -241,10 +264,14 @@ def _extract_kdc_pub(content_info):
     _t, _ver, pos = _read_tlv(signed, pos)
     _t, _algs, pos = _read_tlv(signed, pos)
     _t, encap, _ = _read_tlv(signed, pos)    # encapContentInfo
+    pos = 0
     _t, _oid_val, pos = _read_tlv(encap, pos)
-    _t, wrapped, _ = _read_tlv(encap, pos)   # [0] EXPLICIT
-    _t, keyinfo, _ = _read_tlv(wrapped)      # OCTET STRING
-    _t, kdcdh, _ = _read_tlv(keyinfo)        # KDCDHKeyInfo SEQUENCE
+    _t, wrapped, _ = _read_tlv(encap, pos)   # [0] (explicit or implicit)
+    if wrapped and wrapped[0] == 0x04:
+        _t, keyinfo, _ = _read_tlv(wrapped)  # EXPLICIT: OCTET STRING wrap
+        _t, kdcdh, _ = _read_tlv(keyinfo)    # KDCDHKeyInfo SEQUENCE
+    else:
+        _t, kdcdh, _ = _read_tlv(wrapped)    # IMPLICIT: KDCDHKeyInfo SEQUENCE
     _t, wrapped, _ = _read_tlv(kdcdh, 0)     # [0] BIT STRING
     _t, bits, _ = _read_tlv(wrapped)         # BIT STRING
     int_der = bytes(bits[1:])                # skip the unused-bits byte
@@ -298,6 +325,14 @@ def request_tgt(host, domain, user, cert, key):
         int(constants.EncryptionTypes.aes128_cts_hmac_sha1_96.value),
     ))
     req_body_der = encoder.encode(req_body)
+    # paChecksum covers the BARE KDC-REQ-BODY SEQUENCE — impacket's
+    # encoder wraps it in the [APPLICATION 4] field tag, and hashing
+    # the wrapper makes the authenticator's checksum mismatch what the
+    # KDC recomputes from the wire (KRB_ERR_GENERIC, empty e-text)
+    if req_body_der and req_body_der[0] == 0xA4:
+        ln = req_body_der[1]
+        hdr = 2 + (ln & 0x7F) if ln & 0x80 else 2
+        req_body_der = req_body_der[hdr:]
 
     authpack = build_authpack(req_body_der, dh_pub, client_nonce,
                               secrets.randbits(31), now)
@@ -316,6 +351,13 @@ def request_tgt(host, domain, user, cert, key):
 
     try:
         asrep_bytes = sendReceive(encoder.encode(as_req), domain.upper(), host)
+    except KerberosError as e:
+        etext = ""
+        try:
+            etext = str(e.packet["e-text"])
+        except Exception:
+            pass
+        raise PkinitError(f"KDC refused the PKINIT request - {e} (etext={etext})")
     except Exception as e:
         raise PkinitError(f"KDC refused the PKINIT request - {e}")
 

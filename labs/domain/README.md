@@ -12,6 +12,9 @@ things Samba can emulate):
    │  ca      (dhcp)     Windows Server 2022, joins + installs AD CS as
    │                     an Enterprise Root CA and publishes VulnWeb
    │                     (ESC1) + WeakWeb (ESC4)
+   │  windc 10.10.10.20  Windows Server 2022 — STANDALONE forest
+   │                     wforge.local (AD DS + Enterprise Root CA on the
+   │                     same box), real AD ports on 127.0.0.2
    └───────────────────────────────────────────┘
 ```
 
@@ -75,6 +78,37 @@ things Samba can emulate):
   on every boot. member/ca also `depends_on` the DC with
   `condition: service_healthy` (an in-container LDAP probe), so the
   Windows boxes only start once Samba is really up.
+- The **windc** (`windc` service) is a FOURTH box and its own forest:
+  `oem-windc/windc.ps1` phase 1 builds `wforge.local` with
+  `Install-ADDSForest` (AD DS ONLY first — `Install-ADDSForest` refuses
+  outright when Certificate Services is already installed, "Certificate
+  Server is installed"), phase 2 installs AD CS as Enterprise Root
+  `wforge-CA` ON the DC, creates VulnWeb when absent (this forest has no
+  fixture object — the Samba lab's VulnWeb arrives as one), publishes
+  KerberosAuthentication + VulnWeb, enrolls the KDC cert (PKINIT's
+  requirement), and creates the `analyst`/`Summer2024!` test user. The
+  forest Administrator's password is deterministically reset to
+  `P@ssw0rd123` in phase 2 (its post-promo value is otherwise whatever
+  the local admin's was).
+  **Why standalone instead of a replica DC in FORGE.LOCAL:** dcpromo
+  into the Samba domain fails twice, both verified against this exact
+  build. Unjoined, the Adprep prerequisite dies with "unable to check
+  the specified user's group membership — access denied, Adprep was
+  unable to bind to any DC over RPC". Joined, forestprep's LDIF schema
+  update to the Samba schema master is refused with Ldap error 50
+  (insufficient rights) even as Schema Admin — Samba denies LDAP
+  schema writes by default (`dsdb:schema update allowed`), and Windows
+  adprep is not a supported schema path against Samba anyway (the
+  supported route, `samba-tool domain schemaupgrade`, is experimental
+  and caps at 2016/87, below Server 2022's 88). The standalone forest
+  delivers the real Windows KDC + DS the framework needs with zero
+  experimental risk to the Samba fleet. The Samba<->Windows replication
+  goal is documented as not-pursued for exactly these reasons.
+  **Ports:** real AD ports on 127.0.0.2 (all of 127/8 is loopback on
+  Linux) — 389 LDAP, 88 KDC, 445 SMB — so impacket's hardcoded-AD-port
+  assumptions hold exactly as for the Samba DC. Cold build is a full
+  Windows install + forest create + CA (~25 min); state persists on
+  `windc-data`.
 
 **Access:**
 
@@ -83,6 +117,7 @@ things Samba can emulate):
 | DC LDAP/Kerberos/SMB | `127.0.0.1:389/88/445` | `FORGE\Administrator / P@ssw0rd123` (same fixtures as the ad lab) |
 | member SMB | `127.0.0.1:3445` | local `labadmin / Labpass2024!`, domain creds after join |
 | CA SMB / cert pipe | `127.0.0.1:4445` | domain creds (`analyst` can enroll) |
+| windc LDAP/KDC/SMB (wforge.local) | `127.0.0.2:389/88/445` | `WFORGE\Administrator / P@ssw0rd123`, `analyst / Summer2024!` |
 | member RDP | `127.0.0.1:33389` | same |
 | noVNC | `http://127.0.0.1:8008` | — |
 

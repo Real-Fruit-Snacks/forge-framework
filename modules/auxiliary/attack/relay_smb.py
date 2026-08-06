@@ -65,6 +65,11 @@ try:
         SPNEGO_NegTokenInit, SPNEGO_NegTokenResp, TypesMech)
 except ImportError:
     SMBRelayServer = None  # console gates run() on requirements
+    # the relay client/attack classes below are DEFINED at load time and
+    # need their bases to exist — stand-ins keep the module importable
+    # without deps (run() stays gated on requirements)
+    ProtocolClient = object
+    ProtocolAttack = object
 
 RBCD_ATTR = "msDS-AllowedToActOnBehalfOfOtherIdentity"
 

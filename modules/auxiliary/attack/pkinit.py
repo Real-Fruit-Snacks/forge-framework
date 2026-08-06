@@ -27,7 +27,7 @@ from core.pkinit import PkinitError, parse_pem_bundle, request_tgt, \
 
 try:
     from impacket.krb5.ccache import CCache
-    from impacket.krb5.crypto import _enctype_table
+    from impacket.krb5.crypto import Key, _enctype_table
 except ImportError:
     CCache = None  # console gates run() on requirements
 
@@ -83,7 +83,7 @@ class Pkinit(AuxiliaryModule):
                 self.print_error(f"{host}: PKINIT request failed - {e}")
                 continue
             ccache = CCache()
-            ccache.fromTGT(asrep, _enctype_table[etype], session_key)
+            ccache.fromTGT(asrep, Key(etype, reply_key), session_key)
             store = getattr(self.framework, "store", None)
             if store is not None:
                 store.add_loot("ccache",

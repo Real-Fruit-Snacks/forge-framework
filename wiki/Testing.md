@@ -64,8 +64,10 @@ that lack the docker group can wrap: `echo "cmd" | newgrp docker`.
   masterkey, probe blob, cmdkey entry, DPAPI-wrapped Local State —
   proven by recovering the plaintext from each live artifact), relay_smb
   (NTLM relay to Samba LDAP: manual auth + machine-account auth via the
-  in-network relay container, full attack path, clean ACL denial) —
-  integration, incl. cold CA builds
+  in-network relay container, full attack path, clean ACL denial),
+  windc standalone forest (kerberos_login + LDAP, pkinit cert→TGT→
+  UnPAC hash, relay → RBCD written → s4u ticket against the real
+  Windows KDC/DS) — integration, incl. cold CA builds
 - mssql lab: login, enum (sysadmin/links), xp_cmdshell Linux reporting,
   OPENQUERY through the link — integration
 - snmp lab: spray hits + honest silence — integration

@@ -162,6 +162,24 @@ never run both.
   insufficientAccessRights there (the admin path gets
   constraintViolation — system-only). Windows DCs accept the machine
   account's write of its own attribute — that's the field attack.
+- **dcpromo into a Samba domain is a dead end (both failure modes
+  verified, the windc's standalone forest exists because of them)**:
+  unjoined, the Adprep prerequisite dies with "unable to check the
+  specified user's group membership — access denied, Adprep was unable
+  to bind to any DC over RPC"; joined, forestprep's LDIF schema update
+  to the Samba schema master is refused with Ldap error 50 even as
+  Schema Admin — Samba denies LDAP schema writes by default
+  (`dsdb:schema update allowed`), and Windows adprep isn't a supported
+  schema path against Samba regardless (`samba-tool domain
+  schemaupgrade` is the supported route — experimental, and caps at
+  2016/87, below Server 2022's 88). The windc role therefore builds a
+  STANDALONE forest (wforge.local, AD DS + Enterprise CA on one box,
+  real AD ports on 127.0.0.2) — real Windows KDC for PKINIT, real
+  Windows DS for RBCD writes. Two build traps of its own, both fixed in
+  oem-windc/windc.ps1: `Install-ADDSForest` refuses when Certificate
+  Services is already installed (AD DS first, AD CS second), and a
+  forest has no fixture VulnWeb — the template must be CREATED, not
+  just enriched.
 - **Never request `msDS-AllowedToActOnBehalfOfOtherIdentity` values over
   LDAP** — it's a raw security descriptor and impacket's LDAP codec dies
   decoding it (`PyAsn1UnicodeDecodeError`), killing the whole search.

@@ -112,7 +112,45 @@ services:
       - ./oem-ca:/oem
     stop_grace_period: 2m
 
+  windc:
+    image: dockurr/windows
+    environment:
+      VERSION: "2022"
+      USERNAME: "labadmin"
+      PASSWORD: "Labpass2024!"
+      RAM_SIZE: "4G"
+      CPU_CORES: "2"
+      DISK_SIZE: "40G"   # NTDS.dit + SYSVOL headroom
+    devices:
+      - /dev/kvm
+    cap_add:
+      - NET_ADMIN
+    dns:
+      - 10.10.10.10
+    networks:
+      domain:
+        ipv4_address: 10.10.10.20
+    depends_on:
+      dc:
+        condition: service_healthy
+    # REAL AD ports on 127.0.0.2 (all of 127/8 is loopback on Linux) —
+    # impacket's hardcoded-AD-port assumptions (ldap://, KDC 88, SAMR
+    # 445) hold for the Windows DC exactly as for the Samba one
+    ports:
+      - "127.0.0.2:389:389"    # LDAP (relay_smb's RBCD write target)
+      - "127.0.0.2:88:88"      # KDC (pkinit / AS-REQ)
+      - "127.0.0.2:88:88/udp"
+      - "127.0.0.2:445:445"    # SMB (add_computer / admin$ ops)
+      - "127.0.0.1:8007:8006"  # noVNC
+    volumes:
+      - windc-data:/storage
+      # dcpromo into FORGE.LOCAL as a replica DC (FSMO stays on Samba),
+      # KDC cert from the lab CA (see oem-windc/windc.ps1)
+      - ./oem-windc:/oem
+    stop_grace_period: 2m
+
 volumes:
   member-data:
   dc-state:
   ca-data:
+  windc-data:

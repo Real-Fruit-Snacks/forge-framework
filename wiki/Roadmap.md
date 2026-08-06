@@ -9,42 +9,7 @@ item ships, delete it here and update [[Development]]'s roadmap pointer.
 The bar for every item: real modules against real labs, proven on the
 artifact itself — no mocked crypto, no "it should work".
 
-## 1. Windows AD DC lab role (PKINIT field test + Windows KDC)
-
-**Scope.** A 4th role in labs/domain: `windc` — dockurr/windows Server
-2022 promoted to a second DC (AD DS + DNS), joined to FORGE.LOCAL
-alongside the Samba DC. The Samba DC stays primary for speed.
-
-**Payoff.** The Samba KDC has no PKINIT (proven: our pkinit module's
-clean-refusal path is the tested behavior there). A Windows KDC unlocks
-real PKINIT (cert -> TGT -> UnPAC-the-hash), LDAPS/Schannel behaviors,
-and Windows-KDC-only edge cases — the honest home for several modules
-that currently test "refuses cleanly".
-
-**Design notes.**
-- dcpromo unattended: `Install-WindowsFeature AD-Domain-Services` +
-  `Install-ADDSDomainController` with a generated SafeMode password in
-  the oem script; the CA role already proves the multi-phase oem
-  pattern (ca.ps1 phase 1/2 + sentinels). Reuse that shape.
-- The KDC needs a KDC-template cert for PKINIT — auto-enrollment via
-  GPO from the existing Enterprise CA (the lab's CA is already
-  published; the policy module answers from it in the ESC tests).
-- DNS: the lab compose pins dns to the Samba DC; the Windows DC joins
-  as a second NS. Replication DRS between Samba and Windows DCs is the
-  known-risk item — validate `repadmin`-equivalents before writing
-  module tests on top.
-- Build-script discipline applies in full: cold-rebuild validation
-  (`lab purge domain` + `lab up domain` + the e2e class) before commit,
-  readiness is a real KDC answer (an AS-REQ), not a port.
-
-**Testing plan.** New e2e class: pkinit module against the Windows KDC
-with an ESC1-issued cert (already minted in the ESC tests) -> real TGT
--> assert UnPAC'd NTLM hash matches the account's.
-
-**Files.** labs/domain/compose.yml + labs/domain/oem-windc/; nothing in
-modules (they're built); wiki/Labs.md build notes.
-
-## 2. More encoders (hex, badchar-aware)
+## 1. More encoders (hex, badchar-aware)
 
 **Scope.** Extend modules/payloads/ encoder set: plain hex encode, and
 a badchar-aware transform that takes a BADCHARS option and picks an
@@ -62,7 +27,7 @@ explicitly added later.
 **Testing plan.** Unit: roundtrip + badchar assertion on generated
 bytes; generate-path e2e already exists for payloads — extend it.
 
-## 3. pwntools exploit helpers
+## 2. pwntools exploit helpers
 
 **Scope.** Modules wrapping pwntools for pwn work: `pwn/cyclic`
 (pattern gen + offset find against a crash input), `pwn/rop` (ROP chain
@@ -80,7 +45,7 @@ Cyclic is pure computation (easy, do first). ROP needs a target binary
 pwntools presence against a tiny fixture ELF (compile in-test with gcc
 when available, skip otherwise — no committed binaries).
 
-## 4. C2-style session channels
+## 3. C2-style session channels
 
 **Scope.** Beaconing sessions on top of the handler: poll-based
 HTTP(S)/named-pipe channels with jitter + a task queue per session,
@@ -101,7 +66,7 @@ generator modules so `generate` emits a beacon one-liner.
 against a fixture listener, assert task/result round-trip through real
 HTTP on the web lab.
 
-## 5. Console `set` raw-value semantics
+## 4. Console `set` raw-value semantics
 
 **Scope.** core/console.py `do_set`: today `shlex.split` eats
 backslashes, so `set COMMAND ... C:\Users\...` arrives mangled

@@ -41,7 +41,7 @@ and one command exports an engagement report.
   an AD CS Enterprise CA) with readiness checks, automatic teardown on
   exit, janitor (`lab clean`) and full reclaim (`lab purge`)
 - **Debug mode** — `debug on` for verbose `[D]` tracing, always-on debug log
-- **634 tests** — unit plus docker-gated integration running real modules
+- **637 tests** — unit plus docker-gated integration running real modules
   against real labs
 
 ## Modules
@@ -123,7 +123,7 @@ forge (payloads/bash_reverse_tcp) > generate
 | `ad` | `127.0.0.1:389/88/445/135` | Samba AD DC (FORGE.LOCAL) with roastable + delegation + ADCS fixtures |
 | `windows` | `127.0.0.1:1445/13389` | Windows Server 2022 VM for psexec/wmiexec-class work |
 | `workstation` | `127.0.0.1:2445/23389` | Windows 11 client VM |
-| `domain` | DC `389/88/445`, member `3445/33389`, CA `4445` | small AD domain: Samba DC + auto-joining Win11 member + AD CS Enterprise CA (ESC1/ESC4) |
+| `domain` | DC `389/88/445`, member `3445/33389`, CA `4445`, windc `127.0.0.2:389/88/445` | mini-domain: Samba DC + Win11 member + AD CS CA (ESC1/ESC4) + standalone Windows forest (wforge.local, PKINIT/RBCD) |
 
 `lab up <name>` builds and starts a target; labs are torn down on exit and
 can be fully reclaimed with `lab purge <name>`. Each lab has a build README

@@ -45,14 +45,15 @@ class TestDiscovery(unittest.TestCase):
         )
         # domain: the DC's 1:1 AD bindings (incl. RPC mapper 135, the
         # 15353 DNS pair, and the expanded 49152-49160 dynamic range),
-        # then the member's, then the CA's
+        # then the member's, then the CA's, then the windc's noVNC —
+        # the windc's real AD ports bind 127.0.0.2, outside this parse
         self.assertEqual(
             labs["domain"].targets,
             [(135, 135), (389, 389), (88, 88), (88, 88), (445, 445)]
             + [(15353, 53), (15353, 53)]
             + [(49152 + i, 49152 + i) for i in range(9)]
             + [(3445, 445), (33389, 3389), (8008, 8006)]
-            + [(4445, 445), (8009, 8006)],
+            + [(4445, 445), (8009, 8006), (8007, 8006)],
         )
 
     def test_unknown_lab_raises(self):

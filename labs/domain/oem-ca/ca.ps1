@@ -210,6 +210,10 @@ if ($target.Guid) {
 # guest clock, and that's fixed on every boot now.
 & certutil -SetCATemplates +VulnWeb 2>&1 | Out-String
 & certutil -SetCATemplates +WeakWeb 2>&1 | Out-String
+# the windc role's KDC cert (PKINIT) needs the Kerberos templates
+# published on the CA too
+& certutil -SetCATemplates +KerberosAuthentication 2>&1 | Out-String
+& certutil -SetCATemplates +DomainControllerAuthentication 2>&1 | Out-String
 Restart-Service certsvc -ErrorAction Continue
 Start-Sleep -Seconds 5
 

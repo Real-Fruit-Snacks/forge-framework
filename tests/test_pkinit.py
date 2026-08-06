@@ -122,18 +122,27 @@ class TestCmsAndAuthpack(unittest.TestCase):
         import hashlib
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import padding
-        attrs = pk._set(
+        # the two CMS interop shapes the Windows KDC holds us to: the
+        # signedAttrs FIELD rides [0] IMPLICIT (attrs inline, no SET
+        # wrapper — double-tagging fails decode), while the SIGNATURE
+        # input stays the UNIVERSAL SET-tagged encoding (crypt32
+        # computes over the SET form, not the RFC 5652 implicit form)
+        attrs_body = (
             pk._seq(pk._oid(pk.OID_CONTENT_TYPE) +
                     pk._set(pk._oid(pk.OID_PKINIT_AUTH))) +
             pk._seq(pk._oid(pk.OID_MESSAGE_DIGEST) +
                     pk._set(pk._octet(hashlib.sha1(content).digest()))))
-        start = cms.rindex(attrs)
-        sig_tlv = cms[start + len(attrs):]
+        attrs_field = pk._ctx(0, attrs_body)  # the wire form
+        attrs_set = pk._set(attrs_body)       # the signature input
+        self.assertIn(attrs_field, cms)
+        self.assertNotIn(attrs_set, cms)
+        start = cms.rindex(attrs_field)
+        sig_tlv = cms[start + len(attrs_field):]
         # skip the signatureAlgorithm SEQ, read the OCTET STRING
         tag, _alg, pos2 = pk._read_tlv(sig_tlv, 0)
         # find the OCTET STRING after signedAttrs
-        tag, sig, _ = pk._read_tlv(cms, _find_sig_octet(cms, attrs))
-        cert.public_key().verify(sig, attrs, padding.PKCS1v15(),
+        tag, sig, _ = pk._read_tlv(cms, _find_sig_octet(cms, attrs_field))
+        cert.public_key().verify(sig, attrs_set, padding.PKCS1v15(),
                                  hashes.SHA1())
 
     def test_pem_bundle_roundtrip(self):
