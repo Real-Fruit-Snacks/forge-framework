@@ -46,7 +46,7 @@ live inventory. The shape of it:
 
 | Area | Examples |
 |---|---|
-| Scanners | port_scan, http_headers, dir_buster (recursive), ad_probe, poc_search |
+| Scanners | port_scan, nmap_scan, nmap_import, http_headers, dir_buster (recursive), ad_probe, poc_search |
 | Enumeration | smb_enum, ad_* (users/groups/delegation/gMSA/LAPS/policies/misconfigs), dns_recon, bloodhound (CE JSON), mssql_enum, host packs, cred hunting |
 | Brute force | http/ssh/smb/kerberos/ldap/mssql/winrm/snmp logins, multi_spray, pre2k_spray |
 | AD attacks | kerberoast (+targeted), asreproast, dcsync, golden_ticket, s4u, rbcd, add_computer, pkinit (+UnPAC), shadow_creds, esc1, esc4, dpapi (backupkey, masterkeys, credentials, chrome, system), hash_bait, coerce, smb_capture, relay_smb, pass_the_ticket |

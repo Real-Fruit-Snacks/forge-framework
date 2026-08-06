@@ -22,9 +22,9 @@ season, client, or course module. `workspace` alone lists them.
 | Table | Written by | Read by |
 |---|---|---|
 | hosts | any module touching a host | `hosts`, `report` |
-| services | port_scan, dir_buster, http_headers, login modules | `services`, modules, `report` |
+| services | port_scan, nmap_scan, nmap_import, dir_buster, http_headers, login modules | `services`, modules, `report` |
 | creds | http_login, ssh_login, smb_login, kerberos_login, ldap_login, mssql_login, winrm_login, multi_spray | `creds`, login modules (**tried before wordlists**), `report` |
-| loot | dir_buster (web-dirs), smb_enum (smb-shares), cred_hunt (cred-hunt), hashes (sam_dump, smb_capture, roasts), certs (esc1/esc4), exec output (smb_exec), RBCD writes (relay_smb), the dpapi family (dpapi-backupkey, masterkey, credential, dpapi-system), `loot -a/-f` | `loot`, `report` |
+| loot | dir_buster (web-dirs), smb_enum (smb-shares), cred_hunt (cred-hunt), hashes (sam_dump, smb_capture, roasts), certs (esc1/esc4), exec output (smb_exec), RBCD writes (relay_smb), the dpapi family (dpapi-backupkey, masterkey, credential, dpapi-system), nmap XML (nmap_scan, nmap_import), `loot -a/-f` | `loot`, `report` |
 
 The compounding rule: findings are written so later modules (and
 later-you) can use them. Brute force a web login Monday; Saturday the SSH

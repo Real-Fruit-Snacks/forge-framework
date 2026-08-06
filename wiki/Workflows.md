@@ -110,6 +110,32 @@ run
 `./forge.py -r ~/recon.rc` — boots, runs it, drops you interactive
 with jobs already going.
 
+## nmap -> workspace
+
+Use nmap for the heavy lifting, then import the XML so the rest of the
+framework can see it:
+
+```
+# run nmap yourself, or use nmap_scan if nmap is on PATH
+nmap -sS -sV -oX target.xml 10.10.10.10
+use auxiliary/scanner/nmap_import
+set FILE target.xml
+run
+services
+```
+
+`nmap_scan` does the same thing in one step when the nmap binary is
+available:
+
+```
+use auxiliary/scanner/nmap_scan
+set RHOSTS 10.10.10.0/24
+set NMAP_ARGS -sS -sV
+run -j
+```
+
+Either way, hosts, services, and the raw XML land in the workspace.
+
 ## The coerce -> capture loop
 
 Two consoles (or `run -j` the capture):
