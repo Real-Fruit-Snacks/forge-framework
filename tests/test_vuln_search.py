@@ -7,6 +7,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -123,6 +124,33 @@ class TestCleanBanner(unittest.TestCase):
 
     def test_empty(self):
         self.assertEqual(ps.clean_banner(b"\x00\x01\x02"), "")
+
+
+class TestFetchGithub(unittest.TestCase):
+    @mock.patch.object(vs.urllib.request, "urlopen")
+    def test_passes_token_argument(self, mock_urlopen):
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = b'{"items": []}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        vs.fetch_github("apache", "2.4.49", "rce", token="ghp_secret")
+
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]
+        self.assertEqual(req.headers.get("Authorization"), "Bearer ghp_secret")
+
+    @mock.patch.dict("os.environ", {"GITHUB_TOKEN": "env_token"})
+    @mock.patch.object(vs.urllib.request, "urlopen")
+    def test_falls_back_to_env_token(self, mock_urlopen):
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = b'{"items": []}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        vs.fetch_github("apache", "2.4.49", "rce", token="")
+
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]
+        self.assertEqual(req.headers.get("Authorization"), "Bearer env_token")
 
 
 if __name__ == "__main__":

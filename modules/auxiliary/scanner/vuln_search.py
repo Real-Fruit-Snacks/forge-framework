@@ -29,7 +29,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from core.module import AuxiliaryModule
-from core.options import OptBool, OptInt, OptString
+from core.options import OptBool, OptInt, OptPassword, OptString
 
 EXPLOIT_TYPES = {
     "rce": {"label": "Remote Code Execution",
@@ -165,7 +165,7 @@ def fetch_searchsploit(service, version, type_key):
     return out
 
 
-def fetch_github(service, version, type_key):
+def fetch_github(service, version, type_key, token=""):
     """GitHub repo search; [] on failure/rate-limit."""
     type_hint = type_key if type_key and type_key in EXPLOIT_TYPES else "exploit poc"
     queries = [f"{service} {version} {type_hint}".strip(),
@@ -177,7 +177,8 @@ def fetch_github(service, version, type_key):
                + urllib.parse.quote(q) + "&sort=updated&per_page=10")
         headers = {"Accept": "application/vnd.github+json",
                    "X-GitHub-Api-Version": "2022-11-28"}
-        token = os.environ.get("GITHUB_TOKEN", "")
+        if not token:
+            token = os.environ.get("GITHUB_TOKEN", "")
         if token:
             headers["Authorization"] = f"Bearer {token}"
         try:
@@ -228,8 +229,9 @@ class VulnSearch(AuxiliaryModule):
         ranked by a relevance rubric (title/version/type match, recency,
         PoC signal, EDB bonus). TYPE narrows by exploit class. Leave
         SERVICE blank to search every named service in the store
-        (port_scan's banners feed it). GITHUB_TOKEN env raises the API
-        rate limit. Results looted ranked.
+        (port_scan's banners feed it). Set GITHUB_TOKEN to raise the
+        API rate limit (falls back to the GITHUB_TOKEN env var). The
+        token is masked in `show options`. Results looted ranked.
     """
     authors = ["you"]
 
@@ -242,6 +244,10 @@ class VulnSearch(AuxiliaryModule):
         self.options.add(OptString("TYPE", default="",
                                    description="Exploit class: rce,lpe,sqli,lfi,"
                                                "ssrf,auth,dos,xxe (blank = any)"))
+        self.options.add(OptPassword("GITHUB_TOKEN", default="",
+                                     description="GitHub token for higher "
+                                                 "search rate limits "
+                                                 "(env GITHUB_TOKEN fallback)"))
         self.options.add(OptBool("NO_GITHUB", default=False,
                                  description="Skip the GitHub repo search"))
         self.options.add(OptBool("NO_SEARCHSPLOIT", default=False,
@@ -282,6 +288,7 @@ class VulnSearch(AuxiliaryModule):
         if not no_ss and not shutil.which("searchsploit"):
             self.print_status("searchsploit not installed — GitHub only")
         limit = int(self.get_option("LIMIT"))
+        token = str(self.get_option("GITHUB_TOKEN") or "").strip()
         store = getattr(self.framework, "store", None)
 
         for service, version in queries:
@@ -293,7 +300,7 @@ class VulnSearch(AuxiliaryModule):
                                                service, version, type_key))
                 if not no_gh:
                     futures.append(pool.submit(fetch_github,
-                                               service, version, type_key))
+                                               service, version, type_key, token))
                 results = []
                 for f in futures:
                     try:

@@ -71,8 +71,11 @@ def unwrap_domain_key(domain_key_blob, backup_key):
     from impacket import dpapi
     dk = dpapi.DomainKey(domain_key_blob)
     sentinel = object()
-    plain = PKCS1_v1_5.new(backup_key).decrypt(
-        bytes(dk["SecretData"])[::-1], sentinel)
+    try:
+        plain = PKCS1_v1_5.new(backup_key).decrypt(
+            bytes(dk["SecretData"])[::-1], sentinel)
+    except ValueError:
+        return None
     if plain is sentinel:
         return None
     try:

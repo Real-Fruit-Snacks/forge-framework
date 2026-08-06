@@ -47,6 +47,16 @@ class OptString(Opt):
         return str(value)
 
 
+class OptPassword(OptString):
+    """String option that masks its value in displays (passwords, tokens)."""
+
+    def display_value(self):
+        cur = self.current
+        if cur is None or cur == "":
+            return ""
+        return "*" * min(len(str(cur)), 16)
+
+
 class OptAddress(OptString):
     """Hostname or IP address. Resolution is left to the modules."""
 

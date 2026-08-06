@@ -52,7 +52,7 @@ class TestJobs(unittest.TestCase):
 
         def slow():
             started.append(True)
-            time.sleep(5)
+            time.sleep(0.5)
 
         job = jm.start("test/slow", slow)
         while not started:
